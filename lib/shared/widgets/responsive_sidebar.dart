@@ -11,6 +11,7 @@ class NavItem {
 class ResponsiveSidebar extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
+  final double? width;
 
   static const List<NavItem> items = [
     NavItem(title: 'Dashboard', icon: LucideIcons.layoutDashboard),
@@ -28,6 +29,7 @@ class ResponsiveSidebar extends StatelessWidget {
     super.key,
     required this.selectedIndex,
     required this.onDestinationSelected,
+    this.width = 240,
   });
 
   @override
@@ -35,7 +37,7 @@ class ResponsiveSidebar extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      width: 240,
+      width: width,
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF18181B) : const Color(0xFFFAFAFA),
         border: Border(

@@ -36,222 +36,250 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final scannerProvider = context.watch<ScannerProvider>();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Network & Port Scanner', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                    const Text('Network & Port Scanner',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                     Text(
-                      'Probe open ports, test host reachability, and discover devices on your local network.',
-                      style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                      'Probe open ports, test host reachability, discover LAN devices.',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               ShadButton.outline(
                 size: ShadButtonSize.sm,
                 onPressed: () => scannerProvider.refreshInterfaces(),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(LucideIcons.refreshCw, size: 14),
-                    SizedBox(width: 6),
-                    Text('Refresh Interfaces'),
+                    Icon(LucideIcons.refreshCw, size: 13),
+                    SizedBox(width: 5),
+                    Text('Refresh', style: TextStyle(fontSize: 12)),
                   ],
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
 
-          // Local Network Interfaces Cards
-          const Text('Local Network Interfaces', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: scannerProvider.interfaces.map((iface) {
-              final isLoopback = iface['isLoopback'] == 'true';
-              return ShadCard(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+          // Interface Cards
+          if (scannerProvider.interfaces.isNotEmpty) ...[
+            const Text('Local Interfaces',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: scannerProvider.interfaces.map((iface) {
+                final isLoopback = iface['isLoopback'] == 'true';
+                return ShadCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isLoopback ? LucideIcons.circleDot : LucideIcons.wifi,
+                        size: 15,
+                        color: isLoopback ? Colors.grey : Colors.blue,
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(iface['name'] ?? 'Interface',
+                              style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+                          Text(iface['address'] ?? '',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 13)),
+                        ],
+                      ),
+                      const SizedBox(width: 6),
+                      ShadButton.ghost(
+                        size: ShadButtonSize.sm,
+                        onPressed: () {
+                          _ipController.text = iface['address'] ?? '';
+                          scannerProvider.setTargetIp(iface['address'] ?? '');
+                        },
+                        child: const Icon(LucideIcons.arrowDownToDot, size: 13),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Probe Config Card
+          ShadCard(
+            title: const Text('Probe Target'),
+            description: const Text('Enter target IP and port, then choose a scan mode.'),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: LayoutBuilder(builder: (context, constraints) {
+                final isWide = constraints.maxWidth > 420;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      isLoopback ? LucideIcons.circleDot : LucideIcons.wifi,
-                      size: 16,
-                      color: isLoopback ? Colors.grey : Colors.blue,
-                    ),
-                    const SizedBox(width: 8),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
+                    if (isWide)
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: _labeled(
+                              'Target IP',
+                              ShadInput(
+                                controller: _ipController,
+                                placeholder: const Text('192.168.1.100'),
+                                onChanged: (v) => scannerProvider.setTargetIp(v.trim()),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            flex: 1,
+                            child: _labeled(
+                              'Port',
+                              ShadInput(
+                                controller: _portController,
+                                placeholder: const Text('8081'),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final p = int.tryParse(v.trim());
+                                  if (p != null) scannerProvider.setTargetPort(p);
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else ...[
+                      _labeled(
+                        'Target IP',
+                        ShadInput(
+                          controller: _ipController,
+                          placeholder: const Text('192.168.1.100'),
+                          onChanged: (v) => scannerProvider.setTargetIp(v.trim()),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _labeled(
+                        'Port',
+                        ShadInput(
+                          controller: _portController,
+                          placeholder: const Text('8081'),
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) {
+                            final p = int.tryParse(v.trim());
+                            if (p != null) scannerProvider.setTargetPort(p);
+                          },
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    // Action Buttons - always Wrap for safe mobile layout
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
                       children: [
-                        Text(iface['name'] ?? 'Interface', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                        Text(iface['address'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                        ShadButton(
+                          onPressed: scannerProvider.isScanning
+                              ? null
+                              : () => scannerProvider.pingTarget(),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.activity, size: 15),
+                              SizedBox(width: 7),
+                              Text('Probe Target'),
+                            ],
+                          ),
+                        ),
+                        ShadButton.outline(
+                          onPressed: scannerProvider.isScanning
+                              ? null
+                              : () => scannerProvider.scanCommonPorts(),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.listTree, size: 15),
+                              SizedBox(width: 7),
+                              Text('Scan Common Ports'),
+                            ],
+                          ),
+                        ),
+                        ShadButton.outline(
+                          onPressed: scannerProvider.isScanning
+                              ? null
+                              : () => scannerProvider.scanSubnet(),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.radar, size: 15),
+                              SizedBox(width: 7),
+                              Text('Scan Subnet'),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                    const SizedBox(width: 8),
-                    ShadButton.ghost(
-                      size: ShadButtonSize.sm,
-                      onPressed: () {
-                        _ipController.text = iface['address'] ?? '';
-                        scannerProvider.setTargetIp(iface['address'] ?? '');
-                      },
-                      child: const Icon(LucideIcons.arrowDownToDot, size: 14),
-                    ),
                   ],
-                ),
-              );
-            }).toList(),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Scanner Target Controls Card
-          ShadCard(
-            title: const Text('Probe Configuration'),
-            description: const Text('Enter destination IP address and target port to probe.'),
-            child: Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Target IP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 6),
-                            ShadInput(
-                              controller: _ipController,
-                              placeholder: const Text('192.168.1.100'),
-                              onChanged: (val) => scannerProvider.setTargetIp(val.trim()),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 1,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                            const SizedBox(height: 6),
-                            ShadInput(
-                              controller: _portController,
-                              placeholder: const Text('8081'),
-                              keyboardType: TextInputType.number,
-                              onChanged: (val) {
-                                final p = int.tryParse(val.trim());
-                                if (p != null) scannerProvider.setTargetPort(p);
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      ShadButton(
-                        onPressed: scannerProvider.isScanning
-                            ? null
-                            : () => scannerProvider.pingTarget(),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(LucideIcons.activity, size: 16),
-                            SizedBox(width: 8),
-                            Text('Probe Target'),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ShadButton.outline(
-                        onPressed: scannerProvider.isScanning
-                            ? null
-                            : () => scannerProvider.scanCommonPorts(),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(LucideIcons.listTree, size: 16),
-                            SizedBox(width: 8),
-                            Text('Scan Common Ports'),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ShadButton.outline(
-                        onPressed: scannerProvider.isScanning
-                            ? null
-                            : () => scannerProvider.scanSubnet(),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(LucideIcons.radar, size: 16),
-                            SizedBox(width: 8),
-                            Text('Scan Subnet'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                );
+              }),
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
 
-          // Status & Results
+          // Results Header
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Text('Scanned Results', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 8),
-                  if (scannerProvider.isScanning)
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
+              const Text('Scanned Results',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 10),
+              if (scannerProvider.isScanning)
+                const SizedBox(
+                    width: 15,
+                    height: 15,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+              const Spacer(),
               if (scannerProvider.scannedDevices.isNotEmpty)
                 ShadButton.ghost(
                   size: ShadButtonSize.sm,
                   onPressed: () => scannerProvider.clearResults(),
-                  child: const Text('Clear Results'),
+                  child: const Text('Clear', style: TextStyle(fontSize: 12)),
                 ),
             ],
           ),
-          const SizedBox(height: 8),
-          Text(scannerProvider.scanStatus, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+          const SizedBox(height: 6),
+          Text(scannerProvider.scanStatus,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
           const SizedBox(height: 12),
 
-          // Device Cards List
+          // Results
           if (scannerProvider.scannedDevices.isEmpty)
             ShadCard(
               padding: const EdgeInsets.all(24),
               child: const Center(
-                child: Text('No devices scanned yet. Click "Probe Target" or "Scan Subnet" to start.', style: TextStyle(color: Colors.grey)),
+                child: Text(
+                  'No devices scanned yet.\nClick "Probe Target" or "Scan Subnet" to start.',
+                  style: TextStyle(color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
               ),
             )
           else
@@ -259,34 +287,51 @@ class _ScannerScreenState extends State<ScannerScreen> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: scannerProvider.scannedDevices.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, index) {
                 final device = scannerProvider.scannedDevices[index];
                 return ShadCard(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Icon(
                         device.isReachable ? LucideIcons.laptop : LucideIcons.laptopMinimal,
                         color: device.isReachable ? Colors.green : Colors.grey,
-                        size: 24,
+                        size: 22,
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(device.ip, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                            Text(device.ip,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 15)),
                             const SizedBox(height: 6),
                             Wrap(
-                              spacing: 8,
+                              spacing: 6,
                               runSpacing: 4,
                               children: device.openPorts.entries.map((entry) {
-                                return ShadBadge(
-                                  backgroundColor: entry.value ? Colors.green.shade800 : Colors.grey.shade800,
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: (entry.value
+                                            ? Colors.green
+                                            : Colors.grey)
+                                        .withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
                                   child: Text(
-                                    'Port ${entry.key}: ${entry.value ? "OPEN" : "CLOSED"}',
-                                    style: const TextStyle(fontSize: 11),
+                                    '${entry.key}: ${entry.value ? "OPEN" : "CLOSED"}',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: entry.value
+                                          ? Colors.green.shade400
+                                          : Colors.grey.shade500,
+                                    ),
                                   ),
                                 );
                               }).toList(),
@@ -294,7 +339,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                           ],
                         ),
                       ),
-                      Row(
+                      const SizedBox(width: 8),
+                      // Action buttons always stacked if too narrow
+                      Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ShadButton.ghost(
@@ -308,22 +355,24 @@ class _ScannerScreenState extends State<ScannerScreen> {
                                 ),
                               );
                             },
-                            child: const Icon(LucideIcons.copy, size: 16),
+                            child: const Icon(LucideIcons.copy, size: 15),
                           ),
-                          const SizedBox(width: 8),
                           ShadButton.outline(
                             size: ShadButtonSize.sm,
                             onPressed: () {
-                              final port = device.openPorts.keys.firstWhere((p) => device.openPorts[p] == true, orElse: () => 8081);
-                              final url = 'http://${device.ip}:$port';
-                              launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+                              final port = device.openPorts.keys.firstWhere(
+                                  (p) => device.openPorts[p] == true,
+                                  orElse: () => 8081);
+                              launchUrl(
+                                  Uri.parse('http://${device.ip}:$port'),
+                                  mode: LaunchMode.externalApplication);
                             },
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(LucideIcons.externalLink, size: 14),
-                                SizedBox(width: 4),
-                                Text('Browse'),
+                                Icon(LucideIcons.externalLink, size: 13),
+                                SizedBox(width: 3),
+                                Text('Browse', style: TextStyle(fontSize: 12)),
                               ],
                             ),
                           ),
@@ -336,6 +385,17 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _labeled(String label, Widget child) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        child,
+      ],
     );
   }
 }

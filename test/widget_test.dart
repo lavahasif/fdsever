@@ -22,6 +22,7 @@ import 'package:fdserver/features/web_server/providers/web_server_provider.dart'
 import 'package:fdserver/features/whatsapp/providers/whatsapp_provider.dart';
 import 'package:fdserver/features/whatsapp/screens/whatsapp_screen.dart';
 import 'package:fdserver/shared/widgets/responsive_sidebar.dart';
+import 'package:fdserver/shared/widgets/app_header.dart';
 import 'package:fdserver/main.dart';
 
 Widget createTestApp({
@@ -86,7 +87,10 @@ void main() {
 
     // Verify App Header branding
     expect(find.text('FDServer'), findsWidgets);
-    expect(find.text('Server Inactive'), findsOneWidget);
+    expect(
+      find.descendant(of: find.byType(AppHeader), matching: find.text('Offline')),
+      findsOneWidget,
+    );
 
     // Verify Dashboard screen components
     expect(find.text('FDServer Network & Server Center'), findsOneWidget);
@@ -122,7 +126,7 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('Network & Port Scanner'), findsOneWidget);
-    expect(find.text('Probe Target'), findsOneWidget);
+    expect(find.text('Probe Target'), findsWidgets);
 
     // Tap 'WhatsApp Direct' in sidebar
     await tester.tap(find.descendant(

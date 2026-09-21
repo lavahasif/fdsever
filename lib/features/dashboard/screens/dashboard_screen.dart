@@ -31,7 +31,9 @@ class DashboardScreen extends StatelessWidget {
                   ? 'Local server is active and listening on ${serverProvider.serverUrl}'
                   : 'Web server is currently stopped. Choose an action below or configure your local network.',
             ),
-            footer: Row(
+            footer: Wrap(
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 ShadButton(
                   onPressed: () => serverProvider.toggleServer(),
@@ -44,7 +46,6 @@ class DashboardScreen extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 12),
                 ShadButton.outline(
                   onPressed: () => onNavigate(1), // Web Server tab
                   child: const Text('Open Web Controller'),

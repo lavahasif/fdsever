@@ -93,6 +93,7 @@ class MainNavigationShell extends StatefulWidget {
 
 class _MainNavigationShellState extends State<MainNavigationShell> {
   int _selectedIndex = 0;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   void _onNavigate(int index) {
     setState(() {
@@ -134,10 +135,30 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         final isDesktopOrTablet = constraints.maxWidth >= 768;
 
         return Scaffold(
+          key: _scaffoldKey,
+          drawer: isDesktopOrTablet
+              ? null
+              : Drawer(
+                  backgroundColor: isDark ? const Color(0xFF18181B) : const Color(0xFFFAFAFA),
+                  child: SafeArea(
+                    child: ResponsiveSidebar(
+                      width: double.infinity,
+                      selectedIndex: _selectedIndex,
+                      onDestinationSelected: (idx) {
+                        _onNavigate(idx);
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                  ),
+                ),
           backgroundColor: isDark ? const Color(0xFF09090B) : const Color(0xFFF4F4F5),
           body: Column(
             children: [
-              const AppHeader(),
+              AppHeader(
+                onMenuPressed: isDesktopOrTablet
+                    ? null
+                    : () => _scaffoldKey.currentState?.openDrawer(),
+              ),
               Expanded(
                 child: Row(
                   children: [
@@ -160,11 +181,9 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           bottomNavigationBar: isDesktopOrTablet
               ? null
               : NavigationBar(
-                  selectedIndex: _selectedIndex.clamp(0, 4),
+                  selectedIndex: _selectedIndex < 5 ? _selectedIndex : 0,
                   onDestinationSelected: (idx) {
-                    setState(() {
-                      _selectedIndex = idx;
-                    });
+                    _onNavigate(idx);
                   },
                   destinations: const [
                     NavigationDestination(

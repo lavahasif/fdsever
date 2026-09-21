@@ -34,35 +34,80 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
     final transferProvider = context.watch<FileTransferProvider>();
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
-          const Text('File Transfer & Remote Uploader', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const Text('File Transfer & Remote Uploader',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           Text(
             'Upload local files to any remote FDServer instance or HTTP receiver endpoint.',
-            style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
 
           // Destination Configuration Card
           ShadCard(
             title: const Text('Target Destination'),
             description: const Text('Configure remote IP address and listening port for file receiving.'),
             child: Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Column(
-                children: [
-                  Row(
+              padding: const EdgeInsets.only(top: 14),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth > 450;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        flex: 2,
-                        child: Column(
+                      if (isWide)
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Receiver Host IP',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  ShadInput(
+                                    controller: _ipController,
+                                    placeholder: const Text('192.168.1.50'),
+                                    onChanged: (val) => transferProvider.setDestinationIp(val.trim()),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 1,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Port',
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  ShadInput(
+                                    controller: _portController,
+                                    placeholder: const Text('8081'),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (val) {
+                                      final p = int.tryParse(val.trim());
+                                      if (p != null) transferProvider.setDestinationPort(p);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        )
+                      else ...[
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Receiver Host IP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                            const Text('Receiver Host IP',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
                             const SizedBox(height: 6),
                             ShadInput(
                               controller: _ipController,
@@ -71,14 +116,12 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 1,
-                        child: Column(
+                        const SizedBox(height: 10),
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                            const Text('Port',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
                             const SizedBox(height: 6),
                             ShadInput(
                               controller: _portController,
@@ -91,52 +134,58 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      ],
+                      const SizedBox(height: 16),
+                      Row(
                         children: [
-                          const Text('Delete Local File After Upload', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          Text(
-                            'Automatically remove local file once upload is verified by the remote server.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Delete Local File After Upload',
+                                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Automatically remove local file once upload is verified by the remote server.',
+                                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ShadSwitch(
+                            value: transferProvider.deleteAfterUpload,
+                            onChanged: (val) => transferProvider.setDeleteAfterUpload(val),
                           ),
                         ],
                       ),
-                      ShadSwitch(
-                        value: transferProvider.deleteAfterUpload,
-                        onChanged: (val) => transferProvider.setDeleteAfterUpload(val),
-                      ),
                     ],
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // File Picker & Action Bar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // File Picker & Action Bar (using Wrap to prevent overflow on mobile)
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               ShadButton(
                 onPressed: () => transferProvider.pickFiles(),
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(LucideIcons.filePlus, size: 16),
+                    Icon(LucideIcons.filePlus, size: 15),
                     SizedBox(width: 8),
-                    Text('Choose Files to Upload'),
+                    Text('Choose Files'),
                   ],
                 ),
               ),
-              if (transferProvider.selectedFiles.isNotEmpty)
+              if (transferProvider.selectedFiles.isNotEmpty) ...[
                 ShadButton(
                   onPressed: transferProvider.isUploading
                       ? null
@@ -152,18 +201,35 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
                       else
-                        const Icon(LucideIcons.upload, size: 16),
+                        const Icon(LucideIcons.upload, size: 15),
                       const SizedBox(width: 8),
                       Text('Upload ${transferProvider.selectedFiles.length} File(s)'),
                     ],
                   ),
                 ),
+                ShadButton.outline(
+                  size: ShadButtonSize.sm,
+                  onPressed: () => transferProvider.clearFiles(),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.trash2, size: 13),
+                      SizedBox(width: 6),
+                      Text('Clear All', style: TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
 
-          const SizedBox(height: 12),
-          Text(transferProvider.uploadStatus, style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
-          const SizedBox(height: 16),
+          if (transferProvider.uploadStatus.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(transferProvider.uploadStatus,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade400)),
+          ],
+
+          const SizedBox(height: 18),
 
           // Selected Files List
           if (transferProvider.selectedFiles.isEmpty)
@@ -174,9 +240,11 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
                   children: [
                     Icon(LucideIcons.cloudUpload, size: 36, color: Colors.grey),
                     SizedBox(height: 10),
-                    Text('No files selected', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text('No files selected',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                     SizedBox(height: 4),
-                    Text('Click "Choose Files to Upload" to select documents, APKs, or images.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text('Click "Choose Files" to select documents, APKs, or images.',
+                        style: TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
                 ),
               ),
@@ -190,24 +258,37 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
               itemBuilder: (context, index) {
                 final file = transferProvider.selectedFiles[index];
                 return ShadCard(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   child: Row(
                     children: [
-                      const Icon(LucideIcons.file, size: 20, color: Colors.blue),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(LucideIcons.file, size: 18, color: Colors.blue),
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(file.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                            Text(file.formattedSize, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text(file.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                            const SizedBox(height: 2),
+                            Text(file.formattedSize,
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
                           ],
                         ),
                       ),
+                      const SizedBox(width: 8),
                       ShadButton.ghost(
                         size: ShadButtonSize.sm,
                         onPressed: () => transferProvider.removeFile(index),
-                        child: const Icon(LucideIcons.x, size: 16),
+                        child: const Icon(LucideIcons.x, size: 15),
                       ),
                     ],
                   ),

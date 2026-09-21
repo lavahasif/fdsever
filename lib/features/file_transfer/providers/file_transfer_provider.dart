@@ -59,6 +59,12 @@ class FileTransferProvider extends ChangeNotifier {
     }
   }
 
+  void clearFiles() {
+    _selectedFiles.clear();
+    _uploadStatus = 'No file chosen';
+    notifyListeners();
+  }
+
   Future<void> uploadAll() async {
     if (_selectedFiles.isEmpty) return;
 
