@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fdserver/core/services/apk_install_service.dart';
 import 'package:fdserver/core/services/file_transfer_service.dart';
 import 'package:fdserver/core/services/network_service.dart';
 import 'package:fdserver/core/services/socket_service.dart';
@@ -11,6 +12,7 @@ import 'package:fdserver/core/services/storage_service.dart';
 import 'package:fdserver/core/services/web_server_service.dart';
 import 'package:fdserver/core/services/whatsapp_service.dart';
 import 'package:fdserver/core/theme/app_theme.dart';
+import 'package:fdserver/features/apk_installer/providers/apk_installer_provider.dart';
 import 'package:fdserver/features/file_transfer/providers/file_transfer_provider.dart';
 import 'package:fdserver/features/network_scanner/providers/scanner_provider.dart';
 import 'package:fdserver/features/notes/providers/notes_provider.dart';
@@ -34,10 +36,12 @@ Widget createTestApp({
   final whatsappService = WhatsAppService();
   final socketService = SocketService();
   final fileTransferService = FileTransferService();
+  final apkInstallService = ApkInstallService();
 
   return MultiProvider(
     providers: [
       Provider<StorageService>.value(value: storageService),
+      Provider<ApkInstallService>.value(value: apkInstallService),
       ChangeNotifierProvider(create: (_) => SettingsProvider(storageService)),
       ChangeNotifierProvider(create: (_) => NotesProvider(storageService)),
       ChangeNotifierProvider(create: (_) => TutorialsProvider(storageService)),
@@ -45,6 +49,7 @@ Widget createTestApp({
         create: (ctx) => WebServerProvider(
           webServerService,
           ctx.read<NotesProvider>(),
+          networkService,
         ),
       ),
       ChangeNotifierProvider(create: (_) => ScannerProvider(networkService)),
@@ -54,6 +59,9 @@ Widget createTestApp({
       ChangeNotifierProvider(create: (_) => RealtimeProvider(socketService)),
       ChangeNotifierProvider(
         create: (_) => FileTransferProvider(fileTransferService, storageService),
+      ),
+      ChangeNotifierProvider(
+        create: (_) => ApkInstallerProvider(apkInstallService, networkService),
       ),
     ],
     child: ShadApp(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:fdserver/core/services/apk_install_service.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
@@ -33,6 +34,7 @@ class WebServerService {
       StreamController<ServerLogEntry>.broadcast();
   final List<ServerLogEntry> _recentLogs = [];
 
+  ApkInstallService? apkInstallService;
   bool get isRunning => _isRunning;
   String get host => _host;
   int get port => _port;
@@ -176,6 +178,37 @@ class WebServerService {
       });
 
       // API Upload handler
+      
+      // Easy Install APK route
+      app.post('/api/install-apk', (Request request) async {
+        try {
+          final apkName = request.headers['x-apk-name'] ?? 'app_${DateTime.now().millisecondsSinceEpoch}.apk';
+          final bodyBytes = await request.read().fold<List<int>>([], (a, b) => a..addAll(b));
+          if (apkInstallService != null) {
+            await apkInstallService!.enqueue(apkName, bodyBytes);
+            return Response.ok(
+              json.encode({
+                'success': true,
+                'name': apkName,
+                'bytesReceived': bodyBytes.length,
+                'message': 'APK queued for installation',
+              }),
+              headers: {'content-type': 'application/json'},
+            );
+          } else {
+            return Response.internalServerError(
+              body: json.encode({'error': 'ApkInstallService not configured on server'}),
+              headers: {'content-type': 'application/json'},
+            );
+          }
+        } catch (e) {
+          return Response.internalServerError(
+            body: json.encode({'error': e.toString()}),
+            headers: {'content-type': 'application/json'},
+          );
+        }
+      });
+
       app.post('/api/upload', (Request request) async {
         try {
           final bodyBytes = await request.read().fold<List<int>>([], (a, b) => a..addAll(b));
@@ -261,3 +294,5 @@ class WebServerService {
     _logsController.close();
   }
 }
+
+

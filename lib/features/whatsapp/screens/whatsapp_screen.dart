@@ -220,7 +220,7 @@ class _WhatsAppScreenState extends State<WhatsAppScreen> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: waProvider.recentNumbers.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final number = waProvider.recentNumbers[index];
                   return Padding(

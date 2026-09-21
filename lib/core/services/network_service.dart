@@ -33,6 +33,37 @@ class NetworkService {
   }
 
   /// Get preferred primary local IPv4 address
+    /// Retrieve all available system IPv4 addresses, prioritizing non-loopback LAN interfaces
+  Future<List<Map<String, String>>> getAllSystemIps() async {
+    final List<Map<String, String>> nonLoopback = [];
+    final List<Map<String, String>> loopbacks = [];
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: true,
+        type: InternetAddressType.IPv4,
+      );
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          final isLoopback = addr.isLoopback;
+          final item = {
+            'name': iface.name,
+            'address': addr.address,
+            'isLoopback': isLoopback.toString(),
+          };
+          if (isLoopback) {
+            loopbacks.add(item);
+          } else {
+            nonLoopback.add(item);
+          }
+        }
+      }
+    } catch (_) {}
+    if (nonLoopback.isEmpty && loopbacks.isEmpty) {
+      return [{'name': 'Loopback', 'address': '127.0.0.1', 'isLoopback': 'true'}];
+    }
+    return [...nonLoopback, ...loopbacks];
+  }
+
   Future<String> getPrimaryIp() async {
     try {
       final interfaces = await NetworkInterface.list(

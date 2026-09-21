@@ -32,9 +32,19 @@ class _WebServerScreenState extends State<WebServerScreen> {
     super.dispose();
   }
 
+  void _selectIp(String ip, WebServerProvider provider) {
+    _hostController.text = ip;
+    provider.setHost(ip);
+  }
+
   @override
   Widget build(BuildContext context) {
     final serverProvider = context.watch<WebServerProvider>();
+
+    // Keep controllers in sync if updated externally
+    if (_hostController.text != serverProvider.host && !serverProvider.isRunning) {
+      _hostController.text = serverProvider.host;
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -78,6 +88,141 @@ class _WebServerScreenState extends State<WebServerScreen> {
             ),
             const SizedBox(height: 14),
           ],
+
+          // System IPs Discovery Card
+          ShadCard(
+            title: Row(
+              children: [
+                const Icon(LucideIcons.network, size: 18),
+                const SizedBox(width: 8),
+                Text('Available System IPs (${serverProvider.systemIps.length} found)'),
+                const Spacer(),
+                ShadButton.ghost(
+                  size: ShadButtonSize.sm,
+                  onPressed: serverProvider.isSearchingIps
+                      ? null
+                      : () => serverProvider.searchSystemIps(),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        LucideIcons.refreshCw,
+                        size: 14,
+                        color: serverProvider.isSearchingIps ? Colors.grey : Colors.blue,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        serverProvider.isSearchingIps ? 'Searching...' : 'Search System IPs',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            description: const Text(
+              'Select an IP to bind, or leave 0.0.0.0 to listen on all interfaces.',
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  // 0.0.0.0 chip
+                  InkWell(
+                    onTap: serverProvider.isRunning ? null : () => _selectIp('0.0.0.0', serverProvider),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: serverProvider.host == '0.0.0.0'
+                            ? Colors.blue.withValues(alpha: 0.2)
+                            : Colors.grey.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: serverProvider.host == '0.0.0.0'
+                              ? Colors.blue
+                              : const Color(0xFF27272A),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            LucideIcons.globe,
+                            size: 14,
+                            color: serverProvider.host == '0.0.0.0' ? Colors.blue : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            '0.0.0.0 (All Interfaces)',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Individual system interfaces
+                  ...serverProvider.systemIps.map((item) {
+                    final ip = item['address'] ?? '';
+                    final name = item['name'] ?? '';
+                    final isLoopback = item['isLoopback'] == 'true';
+                    final isSelected = serverProvider.host == ip;
+
+                    return InkWell(
+                      onTap: serverProvider.isRunning ? null : () => _selectIp(ip, serverProvider),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? Colors.green.withValues(alpha: 0.2)
+                              : Colors.grey.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: isSelected ? Colors.green : const Color(0xFF27272A),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isLoopback ? LucideIcons.laptop : LucideIcons.wifi,
+                              size: 14,
+                              color: isSelected ? Colors.green : Colors.grey,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$name: $ip',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                            ),
+                            if (ip == serverProvider.primaryIp && !isLoopback) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: const Text(
+                                  'Primary LAN',
+                                  style: TextStyle(fontSize: 9, color: Colors.blue),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
 
           // Configuration Card
           ShadCard(
@@ -152,13 +297,19 @@ class _WebServerScreenState extends State<WebServerScreen> {
                     ],
                     const SizedBox(height: 14),
                     ShadButton(
-                      onPressed: serverProvider.isLoading ? null : () => serverProvider.toggleServer(),
-                      backgroundColor: serverProvider.isRunning ? Colors.red.shade700 : Colors.green.shade700,
+                      onPressed: serverProvider.isLoading
+                          ? null
+                          : () => serverProvider.toggleServer(),
+                      backgroundColor: serverProvider.isRunning
+                          ? Colors.red.shade700
+                          : Colors.green.shade700,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            serverProvider.isRunning ? LucideIcons.square : LucideIcons.play,
+                            serverProvider.isRunning
+                                ? LucideIcons.square
+                                : LucideIcons.play,
                             size: 15,
                           ),
                           const SizedBox(width: 8),
@@ -171,6 +322,20 @@ class _WebServerScreenState extends State<WebServerScreen> {
               }),
             ),
           ),
+
+          // Accessible Live Endpoints (when running)
+          if (serverProvider.isRunning) ...[
+            const SizedBox(height: 22),
+            const Text('🌐 Accessible Server Endpoints',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(
+              'Connect from other devices on your LAN using any of the URLs below:',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+            ),
+            const SizedBox(height: 10),
+            _buildAccessibleUrlsCard(context, serverProvider),
+          ],
 
           const SizedBox(height: 22),
           const Text('Available Server Routes',
@@ -206,6 +371,96 @@ class _WebServerScreenState extends State<WebServerScreen> {
     );
   }
 
+  Widget _buildAccessibleUrlsCard(BuildContext context, WebServerProvider provider) {
+    final urls = provider.accessibleUrls;
+
+    return ShadCard(
+      padding: const EdgeInsets.all(8),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: urls.length,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final item = urls[index];
+          final url = item['url'] ?? '';
+          final name = item['name'] ?? '';
+          final isLoopback = item['isLoopback'] == 'true';
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  isLoopback ? LucideIcons.laptop : LucideIcons.wifi,
+                  size: 16,
+                  color: isLoopback ? Colors.grey : Colors.greenAccent,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        url,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Colors.greenAccent,
+                        ),
+                      ),
+                      Text(
+                        '$name ${isLoopback ? "(This device only)" : "(Reachable over LAN)"}',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
+                      ),
+                    ],
+                  ),
+                ),
+                ShadButton.ghost(
+                  size: ShadButtonSize.sm,
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: url));
+                    ShadToaster.of(context).show(
+                      ShadToast(
+                        title: const Text('Copied URL'),
+                        description: Text(url),
+                      ),
+                    );
+                  },
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.copy, size: 13),
+                      SizedBox(width: 4),
+                      Text('Copy', style: TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                ShadButton.outline(
+                  size: ShadButtonSize.sm,
+                  onPressed: () => launchUrl(
+                    Uri.parse(url),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.externalLink, size: 13),
+                      SizedBox(width: 4),
+                      Text('Open', style: TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildEndpointsCard(BuildContext context, WebServerProvider provider) {
     final endpoints = [
       {'route': '/', 'label': 'Index Web Page', 'type': 'GET'},
@@ -216,6 +471,7 @@ class _WebServerScreenState extends State<WebServerScreen> {
       {'route': '/api/status', 'label': 'Server Status', 'type': 'JSON'},
       {'route': '/api/notes', 'label': 'Notes API', 'type': 'JSON'},
       {'route': '/api/upload', 'label': 'Upload Endpoint', 'type': 'POST'},
+      {'route': '/api/install-apk', 'label': 'Easy Install APK Endpoint', 'type': 'POST'},
     ];
 
     return ShadCard(
@@ -224,7 +480,7 @@ class _WebServerScreenState extends State<WebServerScreen> {
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: endpoints.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final ep = endpoints[index];
           final fullUrl = '${provider.serverUrl}${ep['route']}';
@@ -326,7 +582,7 @@ class _WebServerScreenState extends State<WebServerScreen> {
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: provider.logs.take(15).length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final log = provider.logs[index];
           final isSuccess = log.statusCode >= 200 && log.statusCode < 400;

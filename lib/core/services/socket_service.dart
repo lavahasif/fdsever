@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:fdserver/core/services/apk_install_service.dart';
 import 'dart:io';
 import '../models/socket_message.dart';
 
@@ -12,6 +13,12 @@ class SocketService {
   final List<SocketMessage> _messages = [];
 
   bool _isClientConnected = false;
+
+  // --- APK streaming state (WebSocket install protocol) ---
+  ApkInstallService? apkInstallService;
+  String _pendingApkName = '';
+  int _pendingApkTotalSize = 0;
+  final List<int> _pendingApkBuffer = [];
   bool _isServerRunning = false;
   String _clientUrl = '';
   int _serverPort = 8082;
@@ -50,9 +57,20 @@ class SocketService {
 
           ws.listen(
             (data) {
+              if (data is List<int>) {
+                _handleBinaryChunk(data, ws);
+                return;
+              }
               final text = data.toString();
+              if (text.startsWith('INSTALL:')) {
+                _prepareApkReceive(text, ws);
+                return;
+              }
+              if (text == 'DONE') {
+                _finalizeApkReceive(ws);
+                return;
+              }
               _addMessage('Received from client: $text', MessageSource.server);
-              // Echo back with prefix
               ws.add('Echo: $text');
             },
             onDone: () {
@@ -149,6 +167,53 @@ class SocketService {
         source: MessageSource.system,
       ),
     );
+  }
+
+  // ── WebSocket APK install protocol helpers ─────────────────────────────
+  void _prepareApkReceive(String controlMsg, WebSocket ws) {
+    final parts = controlMsg.substring('INSTALL:'.length).split(':');
+    if (parts.length < 2) { ws.add('ERROR:Invalid INSTALL command'); return; }
+    _pendingApkName = parts[0];
+    _pendingApkTotalSize = int.tryParse(parts[1]) ?? 0;
+    _pendingApkBuffer.clear();
+    final sizeKb = (_pendingApkTotalSize / 1024).toStringAsFixed(1);
+    _addMessage('APK receive started: $_pendingApkName ($sizeKb KB)', MessageSource.system);
+    ws.add('READY');
+  }
+
+  void _handleBinaryChunk(List<int> chunk, WebSocket ws) {
+    _pendingApkBuffer.addAll(chunk);
+    final received = _pendingApkBuffer.length;
+    final total = _pendingApkTotalSize;
+    if (total > 0) {
+      final pct = ((received / total) * 100).clamp(0, 100).toInt();
+      ws.add('PROGRESS:$pct');
+    }
+  }
+
+  void _finalizeApkReceive(WebSocket ws) {
+    if (_pendingApkBuffer.isEmpty || _pendingApkName.isEmpty) {
+      ws.add('ERROR:No APK data buffered');
+      return;
+    }
+    final bytes = List<int>.from(_pendingApkBuffer);
+    final name = _pendingApkName;
+    final sizeKb = (bytes.length / 1024).toStringAsFixed(1);
+    _addMessage('APK received: $name ($sizeKb KB) — installing...', MessageSource.system);
+    _pendingApkBuffer.clear();
+    _pendingApkName = '';
+    _pendingApkTotalSize = 0;
+
+    ws.add('INSTALLING');
+    if (apkInstallService != null) {
+      apkInstallService!.enqueue(name, bytes).then((_) {
+        ws.add('SUCCESS:$name');
+      }).catchError((e) {
+        ws.add('FAILED:$e');
+      });
+    } else {
+      ws.add('FAILED:ApkInstallService not available');
+    }
   }
 
   void dispose() {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import 'core/services/apk_install_service.dart';
 import 'core/services/file_transfer_service.dart';
 import 'core/services/network_service.dart';
 import 'core/services/socket_service.dart';
@@ -10,23 +11,20 @@ import 'core/services/web_server_service.dart';
 import 'core/services/whatsapp_service.dart';
 import 'core/theme/app_theme.dart';
 
+import 'features/apk_installer/providers/apk_installer_provider.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/file_transfer/providers/file_transfer_provider.dart';
-import 'features/file_transfer/screens/file_transfer_screen.dart';
 import 'features/network_scanner/providers/scanner_provider.dart';
-import 'features/network_scanner/screens/scanner_screen.dart';
 import 'features/notes/providers/notes_provider.dart';
-import 'features/notes/screens/notes_screen.dart';
 import 'features/realtime/providers/realtime_provider.dart';
-import 'features/realtime/screens/realtime_screen.dart';
+import 'features/server/screens/server_hub_screen.dart';
 import 'features/settings/providers/settings_provider.dart';
 import 'features/settings/screens/settings_screen.dart';
+import 'features/sharing/screens/sharing_hub_screen.dart';
 import 'features/tutorials/providers/tutorials_provider.dart';
-import 'features/tutorials/screens/tutorials_screen.dart';
 import 'features/web_server/providers/web_server_provider.dart';
-import 'features/web_server/screens/web_server_screen.dart';
 import 'features/whatsapp/providers/whatsapp_provider.dart';
-import 'features/whatsapp/screens/whatsapp_screen.dart';
+import 'features/workspace/screens/workspace_hub_screen.dart';
 import 'shared/widgets/app_header.dart';
 import 'shared/widgets/responsive_sidebar.dart';
 
@@ -38,11 +36,17 @@ void main() async {
   final whatsappService = WhatsAppService();
   final socketService = SocketService();
   final fileTransferService = FileTransferService();
+  final apkInstallService = ApkInstallService();
+
+  // Wire APK install service into HTTP and WebSocket servers
+  webServerService.apkInstallService = apkInstallService;
+  socketService.apkInstallService = apkInstallService;
 
   runApp(
     MultiProvider(
       providers: [
         Provider<StorageService>.value(value: storageService),
+        Provider<ApkInstallService>.value(value: apkInstallService),
         ChangeNotifierProvider(create: (_) => SettingsProvider(storageService)),
         ChangeNotifierProvider(create: (_) => NotesProvider(storageService)),
         ChangeNotifierProvider(create: (_) => TutorialsProvider(storageService)),
@@ -50,6 +54,7 @@ void main() async {
           create: (ctx) => WebServerProvider(
             webServerService,
             ctx.read<NotesProvider>(),
+            networkService,
           ),
         ),
         ChangeNotifierProvider(create: (_) => ScannerProvider(networkService)),
@@ -59,6 +64,9 @@ void main() async {
         ChangeNotifierProvider(create: (_) => RealtimeProvider(socketService)),
         ChangeNotifierProvider(
           create: (_) => FileTransferProvider(fileTransferService, storageService),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ApkInstallerProvider(apkInstallService, networkService),
         ),
       ],
       child: const FDServerApp(),
@@ -92,34 +100,66 @@ class MainNavigationShell extends StatefulWidget {
 }
 
 class _MainNavigationShellState extends State<MainNavigationShell> {
-  int _selectedIndex = 0;
+  // 0: Hub (Dashboard)
+  // 1: Server & Network
+  // 2: Sharing & Transfer
+  // 3: Workspace & Notes
+  // 4: Settings
+  int _selectedPillar = 0;
+
+  // Sub-indices for hubs
+  int _serverSubIndex = 0;
+  int _sharingSubIndex = 0;
+  int _workspaceSubIndex = 0;
+
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  void _onNavigate(int index) {
+  void _onNavigate(int pillarIndex, [int? subIndex]) {
     setState(() {
-      _selectedIndex = index;
+      _selectedPillar = pillarIndex;
+      if (pillarIndex == 1 && subIndex != null) {
+        _serverSubIndex = subIndex;
+      } else if (pillarIndex == 2 && subIndex != null) {
+        _sharingSubIndex = subIndex;
+      } else if (pillarIndex == 3 && subIndex != null) {
+        _workspaceSubIndex = subIndex;
+      }
     });
   }
 
+  int get _currentSubIndex {
+    switch (_selectedPillar) {
+      case 1:
+        return _serverSubIndex;
+      case 2:
+        return _sharingSubIndex;
+      case 3:
+        return _workspaceSubIndex;
+      default:
+        return 0;
+    }
+  }
+
   Widget _buildBody() {
-    switch (_selectedIndex) {
+    switch (_selectedPillar) {
       case 0:
         return DashboardScreen(onNavigate: _onNavigate);
       case 1:
-        return const WebServerScreen();
+        return ServerHubScreen(
+          key: ValueKey('server_$_serverSubIndex'),
+          initialSubIndex: _serverSubIndex,
+        );
       case 2:
-        return const ScannerScreen();
+        return SharingHubScreen(
+          key: ValueKey('sharing_$_sharingSubIndex'),
+          initialSubIndex: _sharingSubIndex,
+        );
       case 3:
-        return const WhatsAppScreen();
+        return WorkspaceHubScreen(
+          key: ValueKey('workspace_$_workspaceSubIndex'),
+          initialSubIndex: _workspaceSubIndex,
+        );
       case 4:
-        return const NotesScreen();
-      case 5:
-        return const TutorialsScreen();
-      case 6:
-        return const RealtimeScreen();
-      case 7:
-        return const FileTransferScreen();
-      case 8:
         return const SettingsScreen();
       default:
         return DashboardScreen(onNavigate: _onNavigate);
@@ -139,32 +179,37 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           drawer: isDesktopOrTablet
               ? null
               : Drawer(
-                  backgroundColor: isDark ? const Color(0xFF18181B) : const Color(0xFFFAFAFA),
+                  backgroundColor:
+                      isDark ? const Color(0xFF18181B) : const Color(0xFFFAFAFA),
                   child: SafeArea(
                     child: ResponsiveSidebar(
                       width: double.infinity,
-                      selectedIndex: _selectedIndex,
-                      onDestinationSelected: (idx) {
-                        _onNavigate(idx);
+                      selectedPillarIndex: _selectedPillar,
+                      selectedSubIndex: _currentSubIndex,
+                      onDestinationSelected: (pillar, [sub]) {
+                        _onNavigate(pillar, sub);
                         Navigator.of(context).pop();
                       },
                     ),
                   ),
                 ),
-          backgroundColor: isDark ? const Color(0xFF09090B) : const Color(0xFFF4F4F5),
+          backgroundColor:
+              isDark ? const Color(0xFF09090B) : const Color(0xFFF4F4F5),
           body: Column(
             children: [
               AppHeader(
                 onMenuPressed: isDesktopOrTablet
                     ? null
                     : () => _scaffoldKey.currentState?.openDrawer(),
+                onSettingsPressed: () => _onNavigate(4),
               ),
               Expanded(
                 child: Row(
                   children: [
                     if (isDesktopOrTablet)
                       ResponsiveSidebar(
-                        selectedIndex: _selectedIndex,
+                        selectedPillarIndex: _selectedPillar,
+                        selectedSubIndex: _currentSubIndex,
                         onDestinationSelected: _onNavigate,
                       ),
                     Expanded(
@@ -181,30 +226,28 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           bottomNavigationBar: isDesktopOrTablet
               ? null
               : NavigationBar(
-                  selectedIndex: _selectedIndex < 5 ? _selectedIndex : 0,
-                  onDestinationSelected: (idx) {
-                    _onNavigate(idx);
-                  },
+                  selectedIndex: _selectedPillar,
+                  onDestinationSelected: (index) => _onNavigate(index),
                   destinations: const [
                     NavigationDestination(
                       icon: Icon(LucideIcons.layoutDashboard),
-                      label: 'Dashboard',
+                      label: 'Hub',
                     ),
                     NavigationDestination(
                       icon: Icon(LucideIcons.globe),
                       label: 'Server',
                     ),
                     NavigationDestination(
-                      icon: Icon(LucideIcons.radar),
-                      label: 'Scanner',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(LucideIcons.messageSquare),
-                      label: 'WhatsApp',
+                      icon: Icon(LucideIcons.uploadCloud),
+                      label: 'Transfer',
                     ),
                     NavigationDestination(
                       icon: Icon(LucideIcons.notebookPen),
-                      label: 'Notes',
+                      label: 'Workspace',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(LucideIcons.settings),
+                      label: 'Settings',
                     ),
                   ],
                 ),
