@@ -4,6 +4,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../features/notes/providers/notes_provider.dart';
+import '../../features/proxy_server/providers/proxy_provider.dart';
 import '../../features/realtime/providers/realtime_provider.dart';
 import '../../features/web_server/providers/web_server_provider.dart';
 
@@ -77,6 +78,12 @@ class ResponsiveSidebar extends StatelessWidget {
           pillarIndex: 1,
           subIndex: 2,
         ),
+        SidebarDestination(
+          title: 'Proxy Server',
+          icon: LucideIcons.shieldCheck,
+          pillarIndex: 1,
+          subIndex: 3,
+        ),
       ],
     ),
     SidebarGroup(
@@ -126,6 +133,7 @@ class ResponsiveSidebar extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final webServer = context.watch<WebServerProvider>();
     final realtime = context.watch<RealtimeProvider>();
+    final proxy = context.watch<ProxyServerProvider>();
     final notes = context.watch<NotesProvider>();
 
     return Container(
@@ -167,10 +175,13 @@ class ResponsiveSidebar extends StatelessWidget {
                             (dest.subIndex == null || dest.subIndex == selectedSubIndex),
                         isDark: isDark,
                         activeDot: (dest.pillarIndex == 1 && dest.subIndex == 0 && webServer.isRunning) ||
-                            (dest.pillarIndex == 1 && dest.subIndex == 2 && (realtime.isServerRunning || realtime.isClientConnected)),
-                        badgeText: (dest.pillarIndex == 3 && dest.subIndex == 0 && notes.notes.isNotEmpty)
-                            ? '${notes.notes.length}'
-                            : null,
+                            (dest.pillarIndex == 1 && dest.subIndex == 2 && (realtime.isServerRunning || realtime.isClientConnected)) ||
+                            (dest.pillarIndex == 1 && dest.subIndex == 3 && proxy.isRunning),
+                        badgeText: (dest.pillarIndex == 1 && dest.subIndex == 3 && proxy.isRunning)
+                            ? ':${proxy.port}'
+                            : ((dest.pillarIndex == 3 && dest.subIndex == 0 && notes.notes.isNotEmpty)
+                                ? '${notes.notes.length}'
+                                : null),
                       ),
                   ],
                 ],

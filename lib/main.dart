@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'core/services/apk_install_service.dart';
 import 'core/services/file_transfer_service.dart';
 import 'core/services/network_service.dart';
+import 'core/services/proxy_server_service.dart';
 import 'core/services/socket_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/web_server_service.dart';
@@ -16,6 +17,7 @@ import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/file_transfer/providers/file_transfer_provider.dart';
 import 'features/network_scanner/providers/scanner_provider.dart';
 import 'features/notes/providers/notes_provider.dart';
+import 'features/proxy_server/providers/proxy_provider.dart';
 import 'features/realtime/providers/realtime_provider.dart';
 import 'features/server/screens/server_hub_screen.dart';
 import 'features/settings/providers/settings_provider.dart';
@@ -37,6 +39,7 @@ void main() async {
   final socketService = SocketService();
   final fileTransferService = FileTransferService();
   final apkInstallService = ApkInstallService();
+  final proxyServerService = ProxyServerService();
 
   // Wire APK install service into HTTP and WebSocket servers
   webServerService.apkInstallService = apkInstallService;
@@ -67,6 +70,9 @@ void main() async {
         ),
         ChangeNotifierProvider(
           create: (_) => ApkInstallerProvider(apkInstallService, networkService),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => ProxyServerProvider(proxyServerService, networkService, storageService),
         ),
       ],
       child: const FDServerApp(),

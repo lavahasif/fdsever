@@ -331,37 +331,54 @@ class _ApkInstallerScreenState extends State<ApkInstallerScreen> {
                         ],
                       ),
                     ),
-                    ShadButton.outline(
-                      size: ShadButtonSize.sm,
-                      onPressed: provider.isSearchingPc || provider.isConnected
-                          ? null
-                          : () => provider.autoDiscoverPc(),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (provider.isSearchingPc)
+                    if (provider.isSearchingPc)
+                      ShadButton.outline(
+                        size: ShadButtonSize.sm,
+                        onPressed: () => provider.cancelDiscovery(),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                             const SizedBox(
                               width: 12,
                               height: 12,
                               child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          else
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Cancel Search',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black87,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ShadButton.outline(
+                        size: ShadButtonSize.sm,
+                        onPressed: provider.isConnected
+                            ? null
+                            : () => provider.autoDiscoverPc(),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
                             Icon(
                               LucideIcons.search,
                               size: 14,
                               color: isDark ? Colors.white : Colors.black87,
                             ),
-                          const SizedBox(width: 6),
-                          Text(
-                            provider.isSearchingPc ? 'Searching LAN...' : 'Auto-Discover PC',
-                            style: TextStyle(
-                              color: isDark ? Colors.white : Colors.black87,
-                              fontWeight: FontWeight.w500,
+                            const SizedBox(width: 6),
+                            Text(
+                              'Auto-Discover PC',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
                   ],
                 ),
 

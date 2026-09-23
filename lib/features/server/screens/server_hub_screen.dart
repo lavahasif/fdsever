@@ -4,6 +4,8 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../../shared/widgets/category_segmented_bar.dart';
 import '../../network_scanner/screens/scanner_screen.dart';
+import '../../proxy_server/providers/proxy_provider.dart';
+import '../../proxy_server/screens/proxy_server_screen.dart';
 import '../../realtime/providers/realtime_provider.dart';
 import '../../realtime/screens/realtime_screen.dart';
 import '../../web_server/providers/web_server_provider.dart';
@@ -39,6 +41,7 @@ class _ServerHubScreenState extends State<ServerHubScreen> {
   Widget build(BuildContext context) {
     final webServer = context.watch<WebServerProvider>();
     final realtime = context.watch<RealtimeProvider>();
+    final proxy = context.watch<ProxyServerProvider>();
 
     final tabs = [
       CategoryTabItem(
@@ -57,6 +60,12 @@ class _ServerHubScreenState extends State<ServerHubScreen> {
         showActiveDot: realtime.isServerRunning || realtime.isClientConnected,
         badgeText: realtime.isServerRunning ? 'Server' : (realtime.isClientConnected ? 'Client' : null),
       ),
+      CategoryTabItem(
+        title: 'Proxy Server',
+        icon: LucideIcons.shieldCheck,
+        showActiveDot: proxy.isRunning,
+        badgeText: proxy.isRunning ? ':${proxy.port}' : null,
+      ),
     ];
 
     Widget body;
@@ -66,6 +75,9 @@ class _ServerHubScreenState extends State<ServerHubScreen> {
         break;
       case 2:
         body = const RealtimeScreen();
+        break;
+      case 3:
+        body = const ProxyServerScreen();
         break;
       case 0:
       default:

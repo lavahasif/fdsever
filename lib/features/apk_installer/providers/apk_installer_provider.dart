@@ -68,6 +68,8 @@ class ApkInstallerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _searchToken = 0;
+
   Future<void> _initDefaultIp() async {
     try {
       final primary = await _networkService.getPrimaryIp();
@@ -84,44 +86,213 @@ class ApkInstallerProvider extends ChangeNotifier {
 
   // ── Auto-Discover PC on LAN ───────────────────────────────────────────
   Future<bool> autoDiscoverPc() async {
+    final searchToken = ++_searchToken;
     _isSearchingPc = true;
     _connectionStatus = 'Searching LAN for PersonalTasker...';
     notifyListeners();
 
     try {
-      final primary = await _networkService.getPrimaryIp();
-      final subnets = <String>{};
-      if (primary != '127.0.0.1') {
-        final parts = primary.split('.');
-        if (parts.length == 4) subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
-      }
-      subnets.add('10.225.138');
-      subnets.add('192.168.1');
-      subnets.add('192.168.0');
+      // 1. Fast-Path: Probe the current / pre-configured IP first (< 50ms)
+      if (_pcIp.trim().isNotEmpty && _pcIp != '127.0.0.1') {
+        _connectionStatus = 'Probing current IP $_pcIp...';
+        notifyListeners();
 
+        if (await _verifyPersonalTasker(_pcIp, _pcPort, timeoutMs: 500)) {
+          if (searchToken != _searchToken) return false;
+          _isSearchingPc = false;
+          _connectionStatus = 'Found PersonalTasker at $_pcIp';
+          notifyListeners();
+          await connectToPc(_pcIp, _pcPort);
+          return true;
+        }
+      }
+
+      // 2. Discover all candidate subnets dynamically across active interfaces
+      final subnets = await _discoverCandidateSubnets();
+
+      // 3. Scan each subnet concurrently
       for (final subnet in subnets) {
-        for (int i = 1; i <= 254; i++) {
-          final target = '$subnet.$i';
-          try {
-            final uri = Uri.parse('http://$target:$_pcPort/api/status');
-            final res = await http.get(uri).timeout(const Duration(milliseconds: 300));
-            if (res.statusCode == 200 && res.body.contains('PersonalTasker')) {
-              _pcIp = target;
-              _isSearchingPc = false;
-              _connectionStatus = 'Found PersonalTasker at $target';
-              notifyListeners();
-              // Auto-connect
-              await connectToPc(_pcIp, _pcPort);
-              return true;
-            }
-          } catch (_) {}
+        if (searchToken != _searchToken) return false;
+        _connectionStatus = 'Fast-scanning subnet $subnet.0/24...';
+        notifyListeners();
+
+        final foundIp = await _scanSubnetFast(subnet, _pcPort, searchToken);
+        if (foundIp != null) {
+          if (searchToken != _searchToken) return false;
+          _pcIp = foundIp;
+          _isSearchingPc = false;
+          _connectionStatus = 'Found PersonalTasker at $foundIp';
+          notifyListeners();
+          await connectToPc(_pcIp, _pcPort);
+          return true;
         }
       }
     } catch (_) {}
 
+    if (searchToken == _searchToken) {
+      _isSearchingPc = false;
+      _connectionStatus = 'PersonalTasker not found on LAN';
+      notifyListeners();
+    }
+    return false;
+  }
+
+  void cancelDiscovery() {
+    _searchToken++;
     _isSearchingPc = false;
-    _connectionStatus = 'PersonalTasker not found on LAN';
+    _connectionStatus = 'Search cancelled';
     notifyListeners();
+  }
+
+  Future<List<String>> _discoverCandidateSubnets() async {
+    final subnets = <String>{};
+
+    // 1. Active subnets from network interfaces
+    try {
+      final active = await _networkService.getActiveSubnets();
+      subnets.addAll(active);
+    } catch (_) {}
+
+    // 2. Fallbacks: common office/home & mobile hotspot subnets
+    final fallbacks = [
+      '10.225.138',
+      '192.168.1',
+      '192.168.0',
+      '192.168.137', // Windows Mobile Hotspot default
+      '192.168.43',  // Android Wi-Fi Hotspot default
+      '192.168.42',  // USB Tethering default
+      '10.0.0',
+    ];
+    for (final f in fallbacks) {
+      subnets.add(f);
+    }
+
+    return subnets.toList();
+  }
+
+  Future<String?> _scanSubnetFast(String subnet, int port, int searchToken) async {
+    final orderedHosts = <int>[];
+
+    // Priority 1: Check if configured _pcIp has a host suffix (e.g. 220)
+    try {
+      final last = int.tryParse(_pcIp.split('.').last);
+      if (last != null && last >= 1 && last <= 254) {
+        orderedHosts.add(last);
+      }
+    } catch (_) {}
+
+    // Priority 2: Common PC / server static or DHCP addresses
+    for (final h in [220, 1, 2, 100, 101, 102, 105, 150, 200, 254]) {
+      if (!orderedHosts.contains(h)) orderedHosts.add(h);
+    }
+
+    // Priority 3: All remaining hosts on the /24 subnet (1..254)
+    for (int i = 1; i <= 254; i++) {
+      if (!orderedHosts.contains(i)) orderedHosts.add(i);
+    }
+
+    final candidateIps = orderedHosts.map((h) => '$subnet.$h').toList();
+    final completer = Completer<String?>();
+    const concurrency = 35;
+    int nextIndex = 0;
+    int activeWorkers = 0;
+    int testedCount = 0;
+    bool found = false;
+
+    void launchNext() {
+      if (found || completer.isCompleted || _searchToken != searchToken) {
+        return;
+      }
+
+      if (nextIndex >= candidateIps.length) {
+        if (activeWorkers == 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+        return;
+      }
+
+      final ip = candidateIps[nextIndex++];
+      activeWorkers++;
+
+      _probeCandidatePort(ip, port).then((isOpen) async {
+        testedCount++;
+        if (testedCount % 35 == 0 && !found && _searchToken == searchToken) {
+          _connectionStatus = 'Scanning $subnet.0/24 ($testedCount/254)...';
+          notifyListeners();
+        }
+
+        if (isOpen && !found && _searchToken == searchToken) {
+          final isTasker = await _verifyPersonalTasker(ip, port, timeoutMs: 600);
+          if (isTasker && !found && _searchToken == searchToken) {
+            found = true;
+            if (!completer.isCompleted) {
+              completer.complete(ip);
+            }
+            return;
+          }
+        }
+      }).catchError((_) {
+        // Ignore probe errors
+      }).whenComplete(() {
+        activeWorkers--;
+        if (!found && !completer.isCompleted && _searchToken == searchToken) {
+          launchNext();
+        }
+      });
+    }
+
+    // Launch worker pool
+    for (int i = 0; i < concurrency && i < candidateIps.length; i++) {
+      launchNext();
+    }
+
+    return completer.future;
+  }
+
+  Future<bool> _probeCandidatePort(String ip, int port) async {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        ip,
+        port,
+        timeout: const Duration(milliseconds: 200),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      try {
+        socket?.destroy();
+      } catch (_) {}
+    }
+  }
+
+  Future<bool> _verifyPersonalTasker(String ip, int port, {int timeoutMs = 600}) async {
+    // 1. Try HTTP /api/status first
+    try {
+      final uri = Uri.parse('http://$ip:$port/api/status');
+      final res = await http.get(uri).timeout(Duration(milliseconds: timeoutMs));
+      if (res.statusCode == 200) {
+        final body = res.body;
+        if (body.contains('PersonalTasker') ||
+            body.contains('EasyInstall') ||
+            body.contains('"status":"online"') ||
+            body.contains('"status": "online"') ||
+            body.contains('"server"')) {
+          return true;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Fallback: Direct WebSocket connection check
+    try {
+      final ws = await WebSocket.connect(
+        'ws://$ip:$port/ws',
+      ).timeout(Duration(milliseconds: timeoutMs));
+      await ws.close();
+      return true;
+    } catch (_) {}
+
     return false;
   }
 
@@ -177,6 +348,8 @@ class ApkInstallerProvider extends ChangeNotifier {
   }
 
   Future<void> disconnectFromPc() async {
+    _searchToken++;
+    _isSearchingPc = false;
     _socketSub?.cancel();
     _socketSub = null;
     try {
@@ -309,6 +482,8 @@ class ApkInstallerProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _searchToken++;
+    _isSearchingPc = false;
     _sub?.cancel();
     _socketSub?.cancel();
     _pcSocket?.close();

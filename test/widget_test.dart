@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fdserver/core/services/apk_install_service.dart';
 import 'package:fdserver/core/services/file_transfer_service.dart';
 import 'package:fdserver/core/services/network_service.dart';
+import 'package:fdserver/core/services/proxy_server_service.dart';
 import 'package:fdserver/core/services/socket_service.dart';
 import 'package:fdserver/core/services/storage_service.dart';
 import 'package:fdserver/core/services/web_server_service.dart';
@@ -17,6 +18,7 @@ import 'package:fdserver/features/file_transfer/providers/file_transfer_provider
 import 'package:fdserver/features/network_scanner/providers/scanner_provider.dart';
 import 'package:fdserver/features/notes/providers/notes_provider.dart';
 import 'package:fdserver/features/notes/screens/notes_screen.dart';
+import 'package:fdserver/features/proxy_server/providers/proxy_provider.dart';
 import 'package:fdserver/features/realtime/providers/realtime_provider.dart';
 import 'package:fdserver/features/settings/providers/settings_provider.dart';
 import 'package:fdserver/features/tutorials/providers/tutorials_provider.dart';
@@ -37,6 +39,7 @@ Widget createTestApp({
   final socketService = SocketService();
   final fileTransferService = FileTransferService();
   final apkInstallService = ApkInstallService();
+  final proxyServerService = ProxyServerService();
 
   return MultiProvider(
     providers: [
@@ -62,6 +65,9 @@ Widget createTestApp({
       ),
       ChangeNotifierProvider(
         create: (_) => ApkInstallerProvider(apkInstallService, networkService),
+      ),
+      ChangeNotifierProvider(
+        create: (_) => ProxyServerProvider(proxyServerService, networkService, storageService),
       ),
     ],
     child: ShadApp(

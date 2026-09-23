@@ -101,81 +101,13 @@ class WebServerService {
       });
 
       // HTML Notes view
-      app.get('/notes', (Request request) async {
-        final notes = getNotesCallback?.call() ?? [];
-        final buffer = StringBuffer();
-        buffer.write('''
-<!DOCTYPE html>
-<html>
-<head>
-  <title>FDServer - Notes</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    body { background: #09090b; color: #f4f4f5; padding: 2rem 1rem; }
-    .card { background: #18181b; border: 1px solid #27272a; color: #f4f4f5; margin-bottom: 1rem; border-radius: 12px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2>FDServer Notes (${notes.length})</h2>
-      <a href="/" class="btn btn-outline-light">Back Home</a>
-    </div>
-    <div class="row">
-''');
-        if (notes.isEmpty) {
-          buffer.write('<p class="text-muted">No notes recorded yet.</p>');
-        } else {
-          for (final note in notes) {
-            buffer.write('''
-      <div class="col-md-6 col-lg-4">
-        <div class="card p-3 shadow-sm">
-          <h5>${_escape(note.title)}</h5>
-          <p class="text-secondary small mb-2">${_escape(note.createdAt.toString())}</p>
-          <p class="mb-3">${_escape(note.note)}</p>
-          ${note.link.isNotEmpty ? '<a href="${_escape(note.link)}" target="_blank" class="btn btn-sm btn-primary">Open Link</a>' : ''}
-        </div>
-      </div>
-''');
-          }
-        }
-        buffer.write('''
-    </div>
-  </div>
-</body>
-</html>
-''');
-        return Response.ok(
-          buffer.toString(),
-          headers: {'content-type': 'text/html; charset=utf-8'},
-        );
-      });
+      app.get('/notes', (Request request) => _serveAssetHtml('assets/files/index.html', 'FDServer - Notes'));
 
       // Files list
-      app.get('/files', (Request request) async {
-        return Response.ok(
-          '''
-<!DOCTYPE html>
-<html>
-<head>
-  <title>FDServer - Files</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>body { background: #09090b; color: #f4f4f5; padding: 2rem; }</style>
-</head>
-<body>
-  <div class="container">
-    <h2>FDServer Hosted Files</h2>
-    <p class="text-muted">Direct file sharing and downloads enabled.</p>
-    <a href="/" class="btn btn-primary">Home</a>
-  </div>
-</body>
-</html>
-''',
-          headers: {'content-type': 'text/html; charset=utf-8'},
-        );
-      });
+      app.get('/files', (Request request) => _serveAssetHtml('assets/files/index.html', 'FDServer - Files'));
+
+      // 404 Route
+      app.get('/n404', (Request request) => _serveAssetHtml('assets/files/404.html', 'FDServer - 404'));
 
       // API Upload handler
       
@@ -280,14 +212,6 @@ class WebServerService {
     }
   }
 
-  String _escape(String text) {
-    return text
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-  }
 
   void dispose() {
     stopServer();

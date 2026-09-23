@@ -463,15 +463,13 @@ class _WebServerScreenState extends State<WebServerScreen> {
 
   Widget _buildEndpointsCard(BuildContext context, WebServerProvider provider) {
     final endpoints = [
-      {'route': '/', 'label': 'Index Web Page', 'type': 'GET'},
-      {'route': '/notes', 'label': 'Published Notes Explorer', 'type': 'GET'},
-      {'route': '/files', 'label': 'Shared Files Directory', 'type': 'GET'},
-      {'route': '/bim', 'label': 'BIM Architecture Demo', 'type': 'GET'},
-      {'route': '/upload', 'label': 'Web Upload Portal', 'type': 'GET'},
-      {'route': '/api/status', 'label': 'Server Status', 'type': 'JSON'},
-      {'route': '/api/notes', 'label': 'Notes API', 'type': 'JSON'},
-      {'route': '/api/upload', 'label': 'Upload Endpoint', 'type': 'POST'},
-      {'route': '/api/install-apk', 'label': 'Easy Install APK Endpoint', 'type': 'POST'},
+      {'route': '/', 'label': 'Rich Web Portal & Edge Hub', 'type': 'GET'},
+      {'route': '/upload', 'label': 'File Vault & Drag-and-Drop Uploader', 'type': 'GET'},
+      {'route': '/notes', 'label': 'Synchronized Device Notes', 'type': 'GET'},
+      {'route': '/api/status', 'label': 'Server Health & Telemetry', 'type': 'JSON'},
+      {'route': '/api/notes', 'label': 'Device Notes JSON API', 'type': 'JSON'},
+      {'route': '/api/upload', 'label': 'Binary File Upload Stream', 'type': 'POST'},
+      {'route': '/api/install-apk', 'label': 'Remote APK Package Installer', 'type': 'POST'},
     ];
 
     return ShadCard(

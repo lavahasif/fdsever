@@ -120,24 +120,84 @@ class NetworkService {
     );
   }
 
-  /// Scan a subnet for active devices listening on a specific port
+  /// Get all unique active IPv4 subnets across network interfaces
+  Future<List<String>> getActiveSubnets() async {
+    final subnets = <String>{};
+    try {
+      final primary = await getPrimaryIp();
+      if (primary != '127.0.0.1') {
+        final parts = primary.split('.');
+        if (parts.length == 4) subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
+      }
+    } catch (_) {}
+
+    try {
+      final interfaces = await NetworkInterface.list(
+        includeLoopback: false,
+        type: InternetAddressType.IPv4,
+      );
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (!addr.isLoopback && addr.type == InternetAddressType.IPv4) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              subnets.add('${parts[0]}.${parts[1]}.${parts[2]}');
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return subnets.toList();
+  }
+
+  /// Scan a subnet for active devices listening on a specific port using a concurrent pool
   Stream<NetworkDevice> scanSubnet(
     String baseSubnet, // e.g. "192.168.1"
     int port, {
     int startHost = 1,
     int endHost = 254,
-    int timeoutMs = 800,
+    int timeoutMs = 300,
+    int concurrency = 30,
   }) async* {
-    for (int host = startHost; host <= endHost; host++) {
-      final targetIp = '$baseSubnet.$host';
-      final isOpen = await probePort(targetIp, port, timeoutMs: timeoutMs);
-      if (isOpen) {
-        yield NetworkDevice(
-          ip: targetIp,
-          openPorts: {port: true},
-          isReachable: true,
-        );
+    final controller = StreamController<NetworkDevice>();
+    final hosts = [for (int h = startHost; h <= endHost; h++) h];
+    int nextIndex = 0;
+    int active = 0;
+
+    void launchNext() {
+      if (controller.isClosed) return;
+      if (nextIndex >= hosts.length) {
+        if (active == 0 && !controller.isClosed) {
+          controller.close();
+        }
+        return;
       }
+
+      final host = hosts[nextIndex++];
+      final targetIp = '$baseSubnet.$host';
+      active++;
+
+      probePort(targetIp, port, timeoutMs: timeoutMs).then((isOpen) {
+        if (isOpen && !controller.isClosed) {
+          controller.add(NetworkDevice(
+            ip: targetIp,
+            openPorts: {port: true},
+            isReachable: true,
+          ));
+        }
+      }).catchError((_) {
+        // ignore probe errors
+      }).whenComplete(() {
+        active--;
+        launchNext();
+      });
     }
+
+    for (int i = 0; i < concurrency && i < hosts.length; i++) {
+      launchNext();
+    }
+
+    yield* controller.stream;
   }
 }

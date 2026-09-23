@@ -102,7 +102,7 @@ class ScannerProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await for (final device in _networkService.scanSubnet(subnet, port, startHost: 1, endHost: 60)) {
+      await for (final device in _networkService.scanSubnet(subnet, port, startHost: 1, endHost: 254)) {
         _scannedDevices.add(device);
         notifyListeners();
       }

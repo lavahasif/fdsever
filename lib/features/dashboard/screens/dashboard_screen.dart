@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../network_scanner/providers/scanner_provider.dart';
 import '../../notes/providers/notes_provider.dart';
+import '../../proxy_server/providers/proxy_provider.dart';
 import '../../tutorials/providers/tutorials_provider.dart';
 import '../../web_server/providers/web_server_provider.dart';
 
@@ -19,6 +20,7 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final serverProvider = context.watch<WebServerProvider>();
     final scannerProvider = context.watch<ScannerProvider>();
+    final proxyProvider = context.watch<ProxyServerProvider>();
     final notesProvider = context.watch<NotesProvider>();
     final tutsProvider = context.watch<TutorialsProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -40,7 +42,7 @@ class DashboardScreen extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Jump directly into core server, networking, and file sharing utilities.',
+            'Jump directly into core server, networking, proxy gateway, and file sharing utilities.',
             style: TextStyle(
               fontSize: 13,
               color: isDark ? const Color(0xFFA1A1AA) : const Color(0xFF71717A),
@@ -50,7 +52,7 @@ class DashboardScreen extends StatelessWidget {
 
           LayoutBuilder(
             builder: (context, constraints) {
-              final crossAxisCount = constraints.maxWidth > 900 ? 4 : (constraints.maxWidth > 550 ? 2 : 1);
+              final crossAxisCount = constraints.maxWidth > 1100 ? 5 : (constraints.maxWidth > 700 ? 3 : (constraints.maxWidth > 450 ? 2 : 1));
               return GridView.count(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -68,6 +70,16 @@ class DashboardScreen extends StatelessWidget {
                     icon: LucideIcons.globe,
                     accentColor: const Color(0xFF3B82F6),
                     onTap: () => onNavigate(1, 0),
+                  ),
+                  _buildPillarCard(
+                    context,
+                    title: 'Super Proxy',
+                    badge: proxyProvider.isRunning ? ':${proxyProvider.port}' : 'Offline',
+                    badgeColor: proxyProvider.isRunning ? const Color(0xFF10B981) : Colors.grey,
+                    description: 'HTTP, HTTPS CONNECT & SOCKS5 gateway with ad-block shield.',
+                    icon: LucideIcons.shieldCheck,
+                    accentColor: const Color(0xFF10B981),
+                    onTap: () => onNavigate(1, 3),
                   ),
                   _buildPillarCard(
                     context,
@@ -116,6 +128,11 @@ class DashboardScreen extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
+              _buildCompactToolButton(
+                icon: LucideIcons.shieldCheck,
+                label: 'Proxy Gateway (${proxyProvider.isRunning ? 'Active' : 'Offline'})',
+                onPressed: () => onNavigate(1, 3),
+              ),
               _buildCompactToolButton(
                 icon: LucideIcons.radio,
                 label: 'WebSocket Hub',
