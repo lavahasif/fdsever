@@ -6,6 +6,7 @@ import 'core/services/apk_install_service.dart';
 import 'core/services/file_transfer_service.dart';
 import 'core/services/network_service.dart';
 import 'core/services/proxy_server_service.dart';
+import 'core/services/reverse_proxy_service.dart';
 import 'core/services/socket_service.dart';
 import 'core/services/storage_service.dart';
 import 'core/services/web_server_service.dart';
@@ -40,6 +41,7 @@ void main() async {
   final fileTransferService = FileTransferService();
   final apkInstallService = ApkInstallService();
   final proxyServerService = ProxyServerService();
+  final reverseProxyService = ReverseProxyService();
 
   // Wire APK install service into HTTP and WebSocket servers
   webServerService.apkInstallService = apkInstallService;
@@ -72,7 +74,12 @@ void main() async {
           create: (_) => ApkInstallerProvider(apkInstallService, networkService),
         ),
         ChangeNotifierProvider(
-          create: (_) => ProxyServerProvider(proxyServerService, networkService, storageService),
+          create: (_) => ProxyServerProvider(
+            proxyServerService,
+            networkService,
+            reverseProxyService,
+            storageService,
+          ),
         ),
       ],
       child: const FDServerApp(),

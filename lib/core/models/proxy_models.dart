@@ -5,6 +5,7 @@ enum ProxyProtocol {
   httpsConnect,
   socks5,
   pac,
+  reverseProxy,
 }
 
 extension ProxyProtocolExtension on ProxyProtocol {
@@ -18,6 +19,8 @@ extension ProxyProtocolExtension on ProxyProtocol {
         return 'SOCKS5';
       case ProxyProtocol.pac:
         return 'PAC';
+      case ProxyProtocol.reverseProxy:
+        return 'Reverse Proxy';
     }
   }
 
@@ -31,6 +34,8 @@ extension ProxyProtocolExtension on ProxyProtocol {
         return 'SOCKS5';
       case ProxyProtocol.pac:
         return 'PAC';
+      case ProxyProtocol.reverseProxy:
+        return 'REV';
     }
   }
 }
@@ -297,3 +302,89 @@ class ProxyStats {
     );
   }
 }
+
+class ReverseProxyRoute {
+  final String id;
+  final String name;
+  final String pathPrefix; // e.g. "/odoo" or "/api" or "/"
+  final String targetHost; // e.g. "127.0.0.1"
+  final int targetPort; // e.g. 8069
+  final bool stripPrefix; // if true, strip pathPrefix before forwarding
+  final bool isEnabled;
+  final bool? isHealthy; // null = unchecked, true = reachable, false = unreachable
+
+  const ReverseProxyRoute({
+    required this.id,
+    required this.name,
+    required this.pathPrefix,
+    required this.targetHost,
+    required this.targetPort,
+    this.stripPrefix = false,
+    this.isEnabled = true,
+    this.isHealthy,
+  });
+
+  String get targetUrl => 'http://$targetHost:$targetPort';
+
+  ReverseProxyRoute copyWith({
+    String? id,
+    String? name,
+    String? pathPrefix,
+    String? targetHost,
+    int? targetPort,
+    bool? stripPrefix,
+    bool? isEnabled,
+    bool? isHealthy,
+  }) {
+    return ReverseProxyRoute(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      pathPrefix: pathPrefix ?? this.pathPrefix,
+      targetHost: targetHost ?? this.targetHost,
+      targetPort: targetPort ?? this.targetPort,
+      stripPrefix: stripPrefix ?? this.stripPrefix,
+      isEnabled: isEnabled ?? this.isEnabled,
+      isHealthy: isHealthy ?? this.isHealthy,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'pathPrefix': pathPrefix,
+      'targetHost': targetHost,
+      'targetPort': targetPort,
+      'stripPrefix': stripPrefix,
+      'isEnabled': isEnabled,
+    };
+  }
+
+  factory ReverseProxyRoute.fromMap(Map<String, dynamic> map) {
+    return ReverseProxyRoute(
+      id: map['id'] ?? '',
+      name: map['name'] ?? '',
+      pathPrefix: map['pathPrefix'] ?? '/',
+      targetHost: map['targetHost'] ?? '127.0.0.1',
+      targetPort: (map['targetPort'] as int?) ?? 8080,
+      stripPrefix: map['stripPrefix'] ?? false,
+      isEnabled: map['isEnabled'] ?? true,
+    );
+  }
+
+  String toJson() => json.encode(toMap());
+  factory ReverseProxyRoute.fromJson(String source) => ReverseProxyRoute.fromMap(json.decode(source));
+}
+
+class ReverseProxyConfig {
+  final String host;
+  final int port;
+  final List<ReverseProxyRoute> routes;
+
+  const ReverseProxyConfig({
+    this.host = '0.0.0.0',
+    this.port = 8080,
+    this.routes = const [],
+  });
+}
+

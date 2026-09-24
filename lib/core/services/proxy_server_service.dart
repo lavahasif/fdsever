@@ -79,6 +79,10 @@ class ProxyServerService {
     _recentLogs.clear();
   }
 
+  void addExternalLog(ProxyLogEntry entry) {
+    _addLog(entry);
+  }
+
   void _recordBytes(int bytesIn, int bytesOut) {
     _totalBytesIn += bytesIn;
     _totalBytesOut += bytesOut;
@@ -100,6 +104,8 @@ class ProxyServerService {
         break;
       case ProxyProtocol.pac:
         _pacRequests++;
+        break;
+      case ProxyProtocol.reverseProxy:
         break;
     }
     if (entry.isBlocked) {

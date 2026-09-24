@@ -3,17 +3,26 @@ import 'package:flutter/foundation.dart';
 import '../../../core/models/proxy_models.dart';
 import '../../../core/services/network_service.dart';
 import '../../../core/services/proxy_server_service.dart';
-import '../../../core/services/storage_service.dart';
+import '../../../core/services/reverse_proxy_service.dart';
 
 class ProxyServerProvider extends ChangeNotifier {
   final ProxyServerService _service;
   final NetworkService _networkService;
+  final ReverseProxyService _reverseProxyService;
 
   String _host = '0.0.0.0';
   int _port = 8888;
   bool _isLoading = false;
   bool _isSearchingIps = false;
   String? _errorMessage;
+
+  // Reverse Proxy State
+  String _reverseProxyHost = '0.0.0.0';
+  int _reverseProxyPort = 8080;
+  bool _isReverseProxyLoading = false;
+  String? _reverseProxyError;
+  List<ReverseProxyRoute> _reverseProxyRoutes = [];
+  bool _isCheckingHealth = false;
 
   List<Map<String, String>> _systemIps = [];
   String _primaryIp = '127.0.0.1';
@@ -26,18 +35,28 @@ class ProxyServerProvider extends ChangeNotifier {
   // Refresh timer for stats (to update speed gauges smoothly)
   Timer? _metricsTimer;
 
-  ProxyServerProvider(this._service, this._networkService, [StorageService? storageService]) {
+  ProxyServerProvider(
+    this._service,
+    this._networkService, [
+    Object? serviceA,
+    Object? serviceB,
+  ]) : _reverseProxyService = (serviceA is ReverseProxyService
+            ? serviceA
+            : (serviceB is ReverseProxyService ? serviceB : null)) ??
+        ReverseProxyService() {
     _service.logsStream.listen((_) => notifyListeners());
+    _reverseProxyService.onLog = (entry) => _service.addExternalLog(entry);
 
-    // Load default preset rules
+    // Load default preset rules and reverse proxy routes
     _loadInitialRules();
+    _loadInitialReverseRoutes();
 
     // Discover IPs immediately
     searchSystemIps();
 
     // Start 1-second ticker for live bandwidth / stats
     _metricsTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_service.isRunning) {
+      if (_service.isRunning || _reverseProxyService.isRunning) {
         notifyListeners();
       }
     });
@@ -59,6 +78,22 @@ class ProxyServerProvider extends ChangeNotifier {
   List<ProxyRule> get rules => _service.rules;
   bool get isBlocklistEnabled => _service.isBlocklistEnabled;
   ProxyStats get stats => _service.stats;
+
+  // --- Reverse Proxy Getters ---
+  bool get isReverseProxyRunning => _reverseProxyService.isRunning;
+  String get reverseProxyHost => _reverseProxyHost;
+  int get reverseProxyPort => _reverseProxyPort;
+  bool get isReverseProxyLoading => _isReverseProxyLoading;
+  String? get reverseProxyError => _reverseProxyError;
+  List<ReverseProxyRoute> get reverseProxyRoutes => List.unmodifiable(_reverseProxyRoutes);
+  bool get isCheckingHealth => _isCheckingHealth;
+
+  String get effectiveReverseProxyIp {
+    if (_reverseProxyHost != '0.0.0.0' && _reverseProxyHost.isNotEmpty) return _reverseProxyHost;
+    return _primaryIp != '127.0.0.1' ? _primaryIp : '127.0.0.1';
+  }
+
+  String get reverseProxyUrl => 'http://$effectiveReverseProxyIp:$_reverseProxyPort';
 
   String get searchQuery => _searchQuery;
   ProxyProtocol? get selectedProtocolFilter => _selectedProtocolFilter;
@@ -282,10 +317,144 @@ class ProxyServerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Reverse Proxy Operations ---
+  void _loadInitialReverseRoutes() {
+    _reverseProxyRoutes = [
+      const ReverseProxyRoute(
+        id: 'rev_odoo',
+        name: 'Odoo ERP Suite',
+        pathPrefix: '/odoo',
+        targetHost: '127.0.0.1',
+        targetPort: 8069,
+        stripPrefix: false,
+        isEnabled: true,
+      ),
+      const ReverseProxyRoute(
+        id: 'rev_web',
+        name: 'Local Web Server',
+        pathPrefix: '/',
+        targetHost: '127.0.0.1',
+        targetPort: 8081,
+        stripPrefix: false,
+        isEnabled: false,
+      ),
+    ];
+    _reverseProxyService.setRoutes(_reverseProxyRoutes);
+  }
+
+  void setReverseProxyHost(String host) {
+    _reverseProxyHost = host;
+    notifyListeners();
+  }
+
+  void setReverseProxyPort(int port) {
+    _reverseProxyPort = port;
+    notifyListeners();
+  }
+
+  Future<void> toggleReverseProxy() async {
+    _isReverseProxyLoading = true;
+    _reverseProxyError = null;
+    notifyListeners();
+
+    if (_reverseProxyService.isRunning) {
+      await _reverseProxyService.stopServer();
+    } else {
+      await searchSystemIps();
+      _reverseProxyService.setRoutes(_reverseProxyRoutes);
+      final success = await _reverseProxyService.startServer(
+        host: _reverseProxyHost,
+        port: _reverseProxyPort,
+      );
+      if (!success) {
+        _reverseProxyError =
+            'Failed to bind reverse proxy on $_reverseProxyHost:$_reverseProxyPort. Port may be in use.';
+      } else {
+        checkRouteHealth();
+      }
+    }
+
+    _isReverseProxyLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> stopReverseProxy() async {
+    if (_reverseProxyService.isRunning) {
+      await _reverseProxyService.stopServer();
+      notifyListeners();
+    }
+  }
+
+  void addReverseProxyRoute(ReverseProxyRoute route) {
+    _reverseProxyRoutes.add(route);
+    _reverseProxyService.setRoutes(_reverseProxyRoutes);
+    notifyListeners();
+    checkRouteHealth();
+  }
+
+  void removeReverseProxyRoute(String id) {
+    _reverseProxyRoutes.removeWhere((r) => r.id == id);
+    _reverseProxyService.setRoutes(_reverseProxyRoutes);
+    notifyListeners();
+  }
+
+  void toggleReverseProxyRoute(String id) {
+    _reverseProxyRoutes = _reverseProxyRoutes.map((r) {
+      if (r.id == id) {
+        return r.copyWith(isEnabled: !r.isEnabled);
+      }
+      return r;
+    }).toList();
+    _reverseProxyService.setRoutes(_reverseProxyRoutes);
+    notifyListeners();
+  }
+
+  Future<void> checkRouteHealth() async {
+    _isCheckingHealth = true;
+    notifyListeners();
+    try {
+      final healthMap = await _reverseProxyService.checkRoutesHealth();
+      _reverseProxyRoutes = _reverseProxyRoutes.map((r) {
+        if (healthMap.containsKey(r.id)) {
+          return r.copyWith(isHealthy: healthMap[r.id]);
+        }
+        return r;
+      }).toList();
+    } catch (_) {}
+    _isCheckingHealth = false;
+    notifyListeners();
+  }
+
+  void loadOdooPresetRoute() {
+    final hasOdoo = _reverseProxyRoutes.any((r) => r.targetPort == 8069 && r.pathPrefix == '/odoo');
+    if (!hasOdoo) {
+      addReverseProxyRoute(const ReverseProxyRoute(
+        id: 'rev_odoo_8069',
+        name: 'Odoo ERP Suite',
+        pathPrefix: '/odoo',
+        targetHost: '127.0.0.1',
+        targetPort: 8069,
+        stripPrefix: false,
+        isEnabled: true,
+      ));
+    }
+  }
+
+  bool _isDisposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_isDisposed) {
+      super.notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
     _metricsTimer?.cancel();
     _service.dispose();
+    _reverseProxyService.dispose();
     super.dispose();
   }
 }

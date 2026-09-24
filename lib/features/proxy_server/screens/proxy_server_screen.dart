@@ -19,6 +19,17 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   late final TextEditingController _searchController;
   late final TabController _tabController;
 
+  // Reverse Proxy controllers
+  late final TextEditingController _reverseHostController;
+  late final TextEditingController _reversePortController;
+
+  // Add Reverse Route controllers
+  final _routeNameController = TextEditingController();
+  final _routePathPrefixController = TextEditingController(text: '/odoo');
+  final _routeTargetHostController = TextEditingController(text: '127.0.0.1');
+  final _routeTargetPortController = TextEditingController(text: '8069');
+  bool _routeStripPrefix = false;
+
   // New rule dialog controllers
   final _rulePatternController = TextEditingController();
   final _ruleTargetHostController = TextEditingController();
@@ -41,8 +52,10 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     final provider = context.read<ProxyServerProvider>();
     _hostController = TextEditingController(text: provider.host);
     _portController = TextEditingController(text: provider.port.toString());
+    _reverseHostController = TextEditingController(text: provider.reverseProxyHost);
+    _reversePortController = TextEditingController(text: provider.reverseProxyPort.toString());
     _searchController = TextEditingController(text: provider.searchQuery);
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
 
     _authUsernameController.text = provider.auth.username;
     _authPasswordController.text = provider.auth.password;
@@ -51,14 +64,25 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     _upstreamPortController.text = provider.upstream.port.toString();
     _upstreamUserController.text = provider.upstream.username;
     _upstreamPassController.text = provider.upstream.password;
+
+    // Check health of backends on load
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      provider.checkRouteHealth();
+    });
   }
 
   @override
   void dispose() {
     _hostController.dispose();
     _portController.dispose();
+    _reverseHostController.dispose();
+    _reversePortController.dispose();
     _searchController.dispose();
     _tabController.dispose();
+    _routeNameController.dispose();
+    _routePathPrefixController.dispose();
+    _routeTargetHostController.dispose();
+    _routeTargetPortController.dispose();
     _rulePatternController.dispose();
     _ruleTargetHostController.dispose();
     _ruleTargetPortController.dispose();
@@ -74,6 +98,11 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   void _selectIp(String ip, ProxyServerProvider provider) {
     _hostController.text = ip;
     provider.setHost(ip);
+  }
+
+  void _selectReverseIp(String ip, ProxyServerProvider provider) {
+    _reverseHostController.text = ip;
+    provider.setReverseProxyHost(ip);
   }
 
   void _copyToClipboard(String text, String label) {
@@ -100,6 +129,20 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
     if (_hostController.text != proxy.host && !proxy.isRunning) {
       _hostController.text = proxy.host;
+    }
+    if (_reverseHostController.text != proxy.reverseProxyHost && !proxy.isReverseProxyRunning) {
+      _reverseHostController.text = proxy.reverseProxyHost;
+    }
+
+    // Determine aggregate status label
+    String activeLabel = 'PROXY RUNNING';
+    final bool isAnyActive = proxy.isRunning || proxy.isReverseProxyRunning;
+    if (proxy.isRunning && proxy.isReverseProxyRunning) {
+      activeLabel = 'DUAL PROXIES ON';
+    } else if (proxy.isReverseProxyRunning) {
+      activeLabel = 'REVERSE PROXY ON';
+    } else if (proxy.isRunning) {
+      activeLabel = 'FORWARD PROXY ON';
     }
 
     return Scaffold(
@@ -129,12 +172,57 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     indicatorColor: const Color(0xFF3B82F6),
                     indicatorSize: TabBarIndicatorSize.label,
                     tabs: [
-                      const Tab(
+                      Tab(
                         child: Row(
                           children: [
-                            Icon(LucideIcons.gauge, size: 16),
-                            SizedBox(width: 8),
-                            Text('Dashboard & IP'),
+                            const Icon(LucideIcons.gauge, size: 16),
+                            const SizedBox(width: 8),
+                            const Text('Forward Proxy'),
+                            if (proxy.isRunning) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Tab(
+                        child: Row(
+                          children: [
+                            const Icon(LucideIcons.network, size: 16),
+                            const SizedBox(width: 8),
+                            const Text('Reverse Proxy'),
+                            if (proxy.isReverseProxyRunning) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                            if (proxy.reverseProxyRoutes.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${proxy.reverseProxyRoutes.where((r) => r.isEnabled).length}',
+                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -203,9 +291,9 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   ),
                 ),
                 StatusBadge(
-                  isActive: proxy.isRunning,
-                  activeLabel: 'PROXY RUNNING',
-                  inactiveLabel: 'PROXY STOPPED',
+                  isActive: isAnyActive,
+                  activeLabel: activeLabel,
+                  inactiveLabel: 'PROXIES STOPPED',
                 ),
               ],
             ),
@@ -217,6 +305,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               controller: _tabController,
               children: [
                 _buildDashboardTab(context, proxy, isDark),
+                _buildReverseProxyTab(context, proxy, isDark),
                 _buildTrafficInspectorTab(context, proxy, isDark),
                 _buildRulesAndFeaturesTab(context, proxy, isDark),
                 _buildClientSetupTab(context, proxy, isDark),
@@ -229,7 +318,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   }
 
   // ==========================================
-  // TAB 1: DASHBOARD & IP SELECTION
+  // TAB 1: DASHBOARD & FORWARD PROXY
   // ==========================================
 
   Widget _buildDashboardTab(BuildContext context, ProxyServerProvider proxy, bool isDark) {
@@ -247,12 +336,12 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Super Proxy Server',
+                      'Forward Proxy Server',
                       style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: -0.4),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Universal Multi-Protocol Proxy Gateway (HTTP, HTTPS CONNECT, SOCKS5, and PAC Auto-Discovery).',
+                      'Universal Multi-Protocol Outbound Gateway (HTTP, HTTPS CONNECT, SOCKS5, and PAC Auto-Discovery).',
                       style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
                     ),
                   ],
@@ -339,7 +428,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     Row(
                       children: [
                         Text(
-                          proxy.isRunning ? 'Proxy is Active & Forwarding' : 'Proxy Server is Offline',
+                          proxy.isRunning ? 'Forward Proxy is Active & Forwarding' : 'Forward Proxy is Offline',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(width: 8),
@@ -401,7 +490,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     else
                       Icon(proxy.isRunning ? LucideIcons.square : LucideIcons.play, size: 16),
                     const SizedBox(width: 8),
-                    Text(proxy.isRunning ? 'Stop Proxy Gateway' : 'Start Proxy Gateway'),
+                    Text(proxy.isRunning ? 'Stop Forward Proxy' : 'Start Forward Proxy'),
                   ],
                 ),
               ),
@@ -429,7 +518,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   ),
                 ),
                 ShadButton.ghost(
-                  onPressed: () => _tabController.animateTo(1),
+                  onPressed: () => _tabController.animateTo(2),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -706,7 +795,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Proxy Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      const Text('Forward Proxy Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 6),
                       ShadInput(
                         controller: _portController,
@@ -827,7 +916,724 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   }
 
   // ==========================================
-  // TAB 2: LIVE TRAFFIC INSPECTOR
+  // TAB 2: REVERSE PROXY GATEWAY
+  // ==========================================
+
+  Widget _buildReverseProxyTab(BuildContext context, ProxyServerProvider proxy, bool isDark) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Reverse Proxy Gateway',
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: -0.4),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Expose internal servers (e.g. Odoo ERP on 8069, APIs, web apps) to other devices on the LAN via path routes.',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Error alert
+          if (proxy.reverseProxyError != null) ...[
+            ShadAlert.destructive(
+              icon: const Icon(LucideIcons.triangleAlert, size: 16),
+              title: const Text('Reverse Proxy Error'),
+              description: Text(proxy.reverseProxyError!),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Reverse Proxy Hero Card
+          _buildReverseHeroCard(context, proxy, isDark),
+
+          const SizedBox(height: 20),
+
+          // Backend Routes Management Card
+          _buildReverseRoutesCard(context, proxy, isDark),
+
+          const SizedBox(height: 20),
+
+          // Reverse Proxy Network & Port Binding Card
+          _buildReverseIpCard(context, proxy, isDark),
+
+          const SizedBox(height: 20),
+
+          // How Reverse Proxy Works Card
+          _buildReverseProxyExplainerCard(context, proxy, isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReverseHeroCard(BuildContext context, ProxyServerProvider proxy, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF18181B) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: proxy.isReverseProxyRunning
+                      ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                      : (isDark ? const Color(0xFF27272A) : const Color(0xFFF4F4F5)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  proxy.isReverseProxyRunning ? LucideIcons.network : LucideIcons.serverOff,
+                  color: proxy.isReverseProxyRunning ? const Color(0xFF10B981) : Colors.grey,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          proxy.isReverseProxyRunning ? 'Reverse Gateway is Live' : 'Reverse Proxy is Stopped',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: proxy.isReverseProxyRunning
+                                ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                                : Colors.grey.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            proxy.isReverseProxyRunning ? 'ACTIVE' : 'STANDBY',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: proxy.isReverseProxyRunning ? const Color(0xFF10B981) : Colors.grey,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      proxy.isReverseProxyRunning
+                          ? 'Listening on ${proxy.reverseProxyUrl} (${proxy.reverseProxyRoutes.where((r) => r.isEnabled).length} active routes)'
+                          : 'Configure backend routes below, then start the reverse gateway.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? const Color(0xFFA1A1AA) : const Color(0xFF71717A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 18),
+          const Divider(height: 1),
+          const SizedBox(height: 18),
+
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              ShadButton(
+                onPressed: proxy.isReverseProxyLoading ? null : () => proxy.toggleReverseProxy(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (proxy.isReverseProxyLoading)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    else
+                      Icon(proxy.isReverseProxyRunning ? LucideIcons.square : LucideIcons.play, size: 16),
+                    const SizedBox(width: 8),
+                    Text(proxy.isReverseProxyRunning ? 'Stop Reverse Proxy' : 'Start Reverse Proxy'),
+                  ],
+                ),
+              ),
+              if (proxy.isReverseProxyRunning) ...[
+                ShadButton.outline(
+                  onPressed: () => _copyToClipboard(proxy.reverseProxyUrl, 'Reverse Gateway URL'),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.copy, size: 15),
+                      SizedBox(width: 6),
+                      Text('Copy Gateway URL'),
+                    ],
+                  ),
+                ),
+              ],
+              ShadButton.outline(
+                onPressed: proxy.isCheckingHealth ? null : () => proxy.checkRouteHealth(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      LucideIcons.heartPulse,
+                      size: 15,
+                      color: proxy.isCheckingHealth ? Colors.grey : const Color(0xFF10B981),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(proxy.isCheckingHealth ? 'Checking...' : 'Check Backend Health'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReverseRoutesCard(BuildContext context, ProxyServerProvider proxy, bool isDark) {
+    return ShadCard(
+      title: Row(
+        children: [
+          const Icon(LucideIcons.route, size: 18),
+          const SizedBox(width: 8),
+          Text('Configured Backend Routes (${proxy.reverseProxyRoutes.length})'),
+        ],
+      ),
+      description: const Text(
+        'Incoming requests matching these path prefixes will be transparently proxied to target internal servers.',
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                ShadButton.outline(
+                  size: ShadButtonSize.sm,
+                  onPressed: () => proxy.loadOdooPresetRoute(),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.sparkles, size: 14, color: Color(0xFFF59E0B)),
+                      SizedBox(width: 6),
+                      Text('1-Click Add Odoo ERP (8069)'),
+                    ],
+                  ),
+                ),
+                ShadButton.outline(
+                  size: ShadButtonSize.sm,
+                  onPressed: () => _showAddReverseRouteDialog(context, proxy),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.plus, size: 14),
+                      SizedBox(width: 6),
+                      Text('Add Custom Route'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            if (proxy.reverseProxyRoutes.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No routes configured yet. Click above to add a backend route.', style: TextStyle(color: Colors.grey)),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: proxy.reverseProxyRoutes.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final route = proxy.reverseProxyRoutes[index];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(
+                      children: [
+                        ShadSwitch(
+                          value: route.isEnabled,
+                          onChanged: (_) => proxy.toggleReverseProxyRoute(route.id),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Route details
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    route.name,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  const SizedBox(width: 8),
+
+                                  // Health badge
+                                  _buildHealthBadge(route.isHealthy),
+
+                                  if (route.stripPrefix) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text('Strip Prefix', style: TextStyle(fontSize: 9, color: Colors.blue)),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF27272A) : const Color(0xFFF4F4F5),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      'Path: ${route.pathPrefix}/*',
+                                      style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Color(0xFF38BDF8)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Icon(LucideIcons.arrowRight, size: 12, color: Colors.grey),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Forward to ${route.targetUrl}',
+                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        IconButton(
+                          icon: const Icon(LucideIcons.trash2, size: 16, color: Colors.grey),
+                          onPressed: () => proxy.removeReverseProxyRoute(route.id),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHealthBadge(bool? isHealthy) {
+    if (isHealthy == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: Colors.grey.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Text('UNCHECKED', style: TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold)),
+      );
+    }
+    if (isHealthy) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.check, size: 10, color: Color(0xFF10B981)),
+            SizedBox(width: 3),
+            Text('ONLINE', style: TextStyle(fontSize: 9, color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(LucideIcons.x, size: 10, color: Color(0xFFEF4444)),
+          SizedBox(width: 3),
+          Text('OFFLINE', style: TextStyle(fontSize: 9, color: Color(0xFFEF4444), fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReverseIpCard(BuildContext context, ProxyServerProvider proxy, bool isDark) {
+    return ShadCard(
+      title: Row(
+        children: [
+          const Icon(LucideIcons.slidersHorizontal, size: 18),
+          const SizedBox(width: 8),
+          const Text('Reverse Proxy Network & Port Binding'),
+        ],
+      ),
+      description: const Text(
+        'Configure the host address and listening port for the reverse proxy gateway.',
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                // 0.0.0.0 (All Interfaces)
+                InkWell(
+                  onTap: proxy.isReverseProxyRunning ? null : () => _selectReverseIp('0.0.0.0', proxy),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: proxy.reverseProxyHost == '0.0.0.0'
+                          ? const Color(0xFF3B82F6).withValues(alpha: 0.2)
+                          : Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: proxy.reverseProxyHost == '0.0.0.0' ? const Color(0xFF3B82F6) : const Color(0xFF27272A),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          LucideIcons.globe,
+                          size: 15,
+                          color: proxy.reverseProxyHost == '0.0.0.0' ? const Color(0xFF3B82F6) : Colors.grey,
+                        ),
+                        const SizedBox(width: 6),
+                        const Text('0.0.0.0 (All Adapters)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+
+                for (final iface in proxy.systemIps)
+                  InkWell(
+                    onTap: proxy.isReverseProxyRunning ? null : () => _selectReverseIp(iface['address'] ?? '', proxy),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: proxy.reverseProxyHost == iface['address']
+                            ? const Color(0xFF3B82F6).withValues(alpha: 0.2)
+                            : Colors.grey.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: proxy.reverseProxyHost == iface['address'] ? const Color(0xFF3B82F6) : const Color(0xFF27272A),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(LucideIcons.wifi, size: 14, color: proxy.reverseProxyHost == iface['address'] ? const Color(0xFF3B82F6) : Colors.grey),
+                          const SizedBox(width: 6),
+                          Text('${iface['address']} (${iface['name']})', style: const TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+
+            const SizedBox(height: 18),
+            const Divider(height: 1),
+            const SizedBox(height: 18),
+
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Bind Host / IP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      ShadInput(
+                        controller: _reverseHostController,
+                        enabled: !proxy.isReverseProxyRunning,
+                        placeholder: const Text('0.0.0.0'),
+                        onChanged: (val) => proxy.setReverseProxyHost(val),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Reverse Proxy Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      ShadInput(
+                        controller: _reversePortController,
+                        enabled: !proxy.isReverseProxyRunning,
+                        placeholder: const Text('8080'),
+                        keyboardType: TextInputType.number,
+                        onChanged: (val) {
+                          final p = int.tryParse(val);
+                          if (p != null && p > 0 && p <= 65535) {
+                            proxy.setReverseProxyPort(p);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            if (!proxy.isReverseProxyRunning)
+              Row(
+                children: [
+                  const Text('Common Ports: ', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  for (final port in [8080, 80, 8000, 3000, 8069]) ...[
+                    InkWell(
+                      onTap: () {
+                        _reversePortController.text = port.toString();
+                        proxy.setReverseProxyPort(port);
+                      },
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: proxy.reverseProxyPort == port
+                              ? const Color(0xFF3B82F6).withValues(alpha: 0.2)
+                              : Colors.grey.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '$port',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: proxy.reverseProxyPort == port ? FontWeight.bold : FontWeight.normal,
+                            color: proxy.reverseProxyPort == port ? const Color(0xFF3B82F6) : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReverseProxyExplainerCard(BuildContext context, ProxyServerProvider proxy, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF18181B) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('How Reverse Proxy Routing Works', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(
+            '1. External client (phone, browser, tablet on Wi-Fi) accesses:\n   ${proxy.reverseProxyUrl}/odoo/web\n'
+            '2. FDServer Reverse Proxy matches path prefix "/odoo" to backend 127.0.0.1:8069.\n'
+            '3. Proxy automatically injects X-Forwarded-For, X-Forwarded-Proto, and X-Forwarded-Host.\n'
+            '4. Backend response is streamed back directly to the client.',
+            style: const TextStyle(fontSize: 12, height: 1.5, fontFamily: 'monospace'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddReverseRouteDialog(BuildContext context, ProxyServerProvider proxy) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => ShadDialog(
+          title: const Text('Add Reverse Proxy Route'),
+          description: const Text('Route inbound requests matching path prefix to an internal backend service.'),
+          actions: [
+            ShadButton.outline(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ShadButton(
+              onPressed: () {
+                final name = _routeNameController.text.trim();
+                final path = _routePathPrefixController.text.trim();
+                final host = _routeTargetHostController.text.trim();
+                final port = int.tryParse(_routeTargetPortController.text.trim()) ?? 80;
+
+                if (path.isNotEmpty && host.isNotEmpty) {
+                  proxy.addReverseProxyRoute(ReverseProxyRoute(
+                    id: 'route_${DateTime.now().millisecondsSinceEpoch}',
+                    name: name.isNotEmpty ? name : 'Route $path',
+                    pathPrefix: path.startsWith('/') ? path : '/$path',
+                    targetHost: host,
+                    targetPort: port,
+                    stripPrefix: _routeStripPrefix,
+                    isEnabled: true,
+                  ));
+                  _routeNameController.clear();
+                  Navigator.of(ctx).pop();
+                }
+              },
+              child: const Text('Save Route'),
+            ),
+          ],
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 450),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Route Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                ShadInput(
+                  controller: _routeNameController,
+                  placeholder: const Text('e.g. Odoo ERP or API Service'),
+                ),
+                const SizedBox(height: 12),
+
+                const Text('Path Prefix', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                ShadInput(
+                  controller: _routePathPrefixController,
+                  placeholder: const Text('e.g. /odoo or /api or /'),
+                ),
+                const SizedBox(height: 12),
+
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Target Host', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 6),
+                          ShadInput(
+                            controller: _routeTargetHostController,
+                            placeholder: const Text('127.0.0.1'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Target Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 6),
+                          ShadInput(
+                            controller: _routeTargetPortController,
+                            placeholder: const Text('8069'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                Row(
+                  children: [
+                    ShadSwitch(
+                      value: _routeStripPrefix,
+                      onChanged: (val) => setModalState(() => _routeStripPrefix = val),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Strip Path Prefix', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          Text('If enabled, removes /prefix before forwarding to backend.', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB 3: LIVE TRAFFIC INSPECTOR
   // ==========================================
 
   Widget _buildTrafficInspectorTab(BuildContext context, ProxyServerProvider proxy, bool isDark) {
@@ -869,6 +1675,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   _buildProtocolFilterChip('HTTP', ProxyProtocol.http, proxy),
                   _buildProtocolFilterChip('HTTPS', ProxyProtocol.httpsConnect, proxy),
                   _buildProtocolFilterChip('SOCKS5', ProxyProtocol.socks5, proxy),
+                  _buildProtocolFilterChip('Reverse', ProxyProtocol.reverseProxy, proxy),
                 ],
               ),
 
@@ -904,8 +1711,8 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        proxy.isRunning
-                            ? 'Configure client apps to use proxy ${proxy.proxyAddress}'
+                        (proxy.isRunning || proxy.isReverseProxyRunning)
+                            ? 'Configure client apps to use proxy or make requests to reverse proxy'
                             : 'Start the proxy server to begin inspecting requests',
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
@@ -1128,7 +1935,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   }
 
   // ==========================================
-  // TAB 3: SUPER PROXY RULES & AD-BLOCKING
+  // TAB 4: SUPER PROXY RULES & AD-BLOCKING
   // ==========================================
 
   Widget _buildRulesAndFeaturesTab(BuildContext context, ProxyServerProvider proxy, bool isDark) {
@@ -1560,7 +2367,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   }
 
   // ==========================================
-  // TAB 4: CLIENT SETUP & PAC
+  // TAB 5: CLIENT SETUP & PAC
   // ==========================================
 
   Widget _buildClientSetupTab(BuildContext context, ProxyServerProvider proxy, bool isDark) {
