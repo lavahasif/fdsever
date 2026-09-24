@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../../core/models/proxy_models.dart';
 import '../../../core/services/network_service.dart';
+import '../../../core/services/power_service.dart';
 import '../../../core/services/proxy_server_service.dart';
 import '../../../core/services/reverse_proxy_service.dart';
 
@@ -9,6 +10,8 @@ class ProxyServerProvider extends ChangeNotifier {
   final ProxyServerService _service;
   final NetworkService _networkService;
   final ReverseProxyService _reverseProxyService;
+  final PowerService? _powerService;
+  StreamSubscription? _batterySub;
 
   String _host = '0.0.0.0';
   int _port = 8888;
@@ -40,12 +43,21 @@ class ProxyServerProvider extends ChangeNotifier {
     this._networkService, [
     Object? serviceA,
     Object? serviceB,
-  ]) : _reverseProxyService = (serviceA is ReverseProxyService
+    Object? serviceC,
+  ])  : _reverseProxyService = (serviceA is ReverseProxyService
             ? serviceA
-            : (serviceB is ReverseProxyService ? serviceB : null)) ??
-        ReverseProxyService() {
+            : (serviceB is ReverseProxyService
+                ? serviceB
+                : (serviceC is ReverseProxyService ? serviceC : null))) ??
+        ReverseProxyService(),
+        _powerService = (serviceA is PowerService
+            ? serviceA
+            : (serviceB is PowerService
+                ? serviceB
+                : (serviceC is PowerService ? serviceC : null))) {
     _service.logsStream.listen((_) => notifyListeners());
     _reverseProxyService.onLog = (entry) => _service.addExternalLog(entry);
+    _batterySub = _powerService?.batteryOptimizationStream.listen((_) => notifyListeners());
 
     // Load default preset rules and reverse proxy routes
     _loadInitialRules();
@@ -60,6 +72,14 @@ class ProxyServerProvider extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  bool get isIgnoringBattery => _powerService?.isIgnoringBattery ?? true;
+
+  Future<bool> requestDisableBatteryOptimization() async {
+    final res = await _powerService?.requestDisableBatteryOptimization() ?? false;
+    notifyListeners();
+    return res;
   }
 
   // Getters
@@ -212,6 +232,7 @@ class ProxyServerProvider extends ChangeNotifier {
 
     if (_service.isRunning) {
       await _service.stopServer();
+      await _powerService?.releaseWakeLock('forward_proxy');
     } else {
       await searchSystemIps();
 
@@ -221,6 +242,8 @@ class ProxyServerProvider extends ChangeNotifier {
       );
       if (!success) {
         _errorMessage = 'Failed to bind proxy to $_host:$_port. Port may be in use by another service.';
+      } else {
+        await _powerService?.acquireWakeLock('forward_proxy');
       }
     }
 
@@ -231,6 +254,7 @@ class ProxyServerProvider extends ChangeNotifier {
   Future<void> stopServer() async {
     if (_service.isRunning) {
       await _service.stopServer();
+      await _powerService?.releaseWakeLock('forward_proxy');
       notifyListeners();
     }
   }
@@ -359,6 +383,7 @@ class ProxyServerProvider extends ChangeNotifier {
 
     if (_reverseProxyService.isRunning) {
       await _reverseProxyService.stopServer();
+      await _powerService?.releaseWakeLock('reverse_proxy');
     } else {
       await searchSystemIps();
       _reverseProxyService.setRoutes(_reverseProxyRoutes);
@@ -370,6 +395,7 @@ class ProxyServerProvider extends ChangeNotifier {
         _reverseProxyError =
             'Failed to bind reverse proxy on $_reverseProxyHost:$_reverseProxyPort. Port may be in use.';
       } else {
+        await _powerService?.acquireWakeLock('reverse_proxy');
         checkRouteHealth();
       }
     }
@@ -381,6 +407,7 @@ class ProxyServerProvider extends ChangeNotifier {
   Future<void> stopReverseProxy() async {
     if (_reverseProxyService.isRunning) {
       await _reverseProxyService.stopServer();
+      await _powerService?.releaseWakeLock('reverse_proxy');
       notifyListeners();
     }
   }
@@ -452,6 +479,9 @@ class ProxyServerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _batterySub?.cancel();
+    _powerService?.releaseWakeLock('forward_proxy');
+    _powerService?.releaseWakeLock('reverse_proxy');
     _metricsTimer?.cancel();
     _service.dispose();
     _reverseProxyService.dispose();

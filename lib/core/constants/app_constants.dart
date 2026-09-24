@@ -20,6 +20,8 @@ class AppConstants {
   static const String prefNotes = 'saved_notes';
   static const String prefTutorials = 'saved_tutorials';
   static const String prefRecentNumbers = 'recent_whatsapp_numbers';
+  static const String prefKeepScreenOn = 'keep_screen_on';
+  static const String prefKeepCpuAwake = 'keep_cpu_awake';
 
   // Common scanned ports
   static const List<int> defaultScanPorts = [80, 443, 8069, 8080, 8081, 1433, 3000, 5000];

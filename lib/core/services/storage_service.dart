@@ -35,6 +35,12 @@ class StorageService {
   String getThemeMode() => _prefs.getString(AppConstants.prefThemeMode) ?? 'system';
   Future<void> setThemeMode(String mode) => _prefs.setString(AppConstants.prefThemeMode, mode);
 
+  bool getKeepScreenOn() => _prefs.getBool(AppConstants.prefKeepScreenOn) ?? false;
+  Future<void> setKeepScreenOn(bool value) => _prefs.setBool(AppConstants.prefKeepScreenOn, value);
+
+  bool getKeepCpuAwake() => _prefs.getBool(AppConstants.prefKeepCpuAwake) ?? false;
+  Future<void> setKeepCpuAwake(bool value) => _prefs.setBool(AppConstants.prefKeepCpuAwake, value);
+
   // Notes persistence
   List<NoteItem> getNotes() {
     final rawList = _prefs.getStringList(AppConstants.prefNotes) ?? [];

@@ -142,6 +142,190 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 22),
 
+          // Background Execution & Battery Optimization Card
+          ShadCard(
+            title: const Text('Background Execution & Battery Optimization'),
+            description: const Text(
+              'Prevent Auto Installer, Proxy Server, and local servers from stopping when the screen turns off.',
+            ),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Battery Optimization Status Banner
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: settingsProvider.isIgnoringBattery
+                          ? const Color(0xFF10B981).withValues(alpha: 0.1)
+                          : const Color(0xFFF59E0B).withValues(alpha: 0.1),
+                      border: Border.all(
+                        color: settingsProvider.isIgnoringBattery
+                            ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                            : const Color(0xFFF59E0B).withValues(alpha: 0.4),
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              settingsProvider.isIgnoringBattery
+                                  ? LucideIcons.shieldCheck
+                                  : LucideIcons.triangleAlert,
+                              color: settingsProvider.isIgnoringBattery
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFFF59E0B),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              settingsProvider.isIgnoringBattery
+                                  ? 'Battery Optimization: Unrestricted'
+                                  : 'Battery Optimization: Restricted (Active)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: settingsProvider.isIgnoringBattery
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFF59E0B),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          settingsProvider.isIgnoringBattery
+                              ? 'FDServer has unrestricted power rights. Android will NOT sleep CPU or close sockets when the screen is off.'
+                              : 'Android battery optimization is currently active. Android will suspend sockets, downloads, and proxy tunnels when the screen dies.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        if (!settingsProvider.isIgnoringBattery) ...[
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
+                            children: [
+                              ShadButton(
+                                size: ShadButtonSize.sm,
+                                onPressed: () async {
+                                  await settingsProvider.requestDisableBatteryOptimization();
+                                },
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(LucideIcons.batteryCharging, size: 14),
+                                    SizedBox(width: 6),
+                                    Text('Remove Battery Optimization'),
+                                  ],
+                                ),
+                              ),
+                              ShadButton.outline(
+                                size: ShadButtonSize.sm,
+                                onPressed: () {
+                                  settingsProvider.openBatterySettings();
+                                },
+                                child: const Text('Open System Settings'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Keep Screen Awake Switch
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Keep Screen Awake',
+                              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Prevents the display from sleeping or turning off while using FDServer.',
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: settingsProvider.keepScreenOn,
+                        onChanged: (val) => settingsProvider.toggleKeepScreenOn(val),
+                      ),
+                    ],
+                  ),
+
+                  const Divider(height: 24),
+
+                  // Keep CPU Awake Switch (WakeLock)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Continuous CPU Wake Lock',
+                                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                ),
+                                const SizedBox(width: 8),
+                                if (settingsProvider.isWakeLockHeld)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      'ACTIVE',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Keeps CPU running in background so Auto Installer and Proxy never pause even if the screen turns off.',
+                              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: settingsProvider.keepCpuAwake,
+                        onChanged: (val) => settingsProvider.toggleKeepCpuAwake(val),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 22),
+
           // Theme Card
           ShadCard(
             title: const Text('Visual Appearance'),

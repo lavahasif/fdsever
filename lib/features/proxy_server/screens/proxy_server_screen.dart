@@ -362,6 +362,47 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
             const SizedBox(height: 16),
           ],
 
+          // Battery Optimization Alert Banner
+          if (!proxy.isIgnoringBattery) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(LucideIcons.triangleAlert, color: Color(0xFFF59E0B), size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Battery Optimization Active',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFFF59E0B)),
+                        ),
+                        Text(
+                          'Android may sleep CPU or pause proxy traffic when the screen dies. Remove optimization for 24/7 uptime.',
+                          style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ShadButton(
+                    size: ShadButtonSize.sm,
+                    onPressed: () => proxy.requestDisableBatteryOptimization(),
+                    child: const Text('Disable'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // Hero Status Card
           _buildHeroCard(context, proxy, isDark),
 
@@ -956,6 +997,47 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               icon: const Icon(LucideIcons.triangleAlert, size: 16),
               title: const Text('Reverse Proxy Error'),
               description: Text(proxy.reverseProxyError!),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Battery Optimization Alert Banner
+          if (!proxy.isIgnoringBattery) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(LucideIcons.triangleAlert, color: Color(0xFFF59E0B), size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Battery Optimization Active',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFFF59E0B)),
+                        ),
+                        Text(
+                          'Android may pause reverse proxy routes when the screen dies. Remove optimization for 24/7 uptime.',
+                          style: TextStyle(fontSize: 11, color: isDark ? Colors.white70 : Colors.black87),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ShadButton(
+                    size: ShadButtonSize.sm,
+                    onPressed: () => proxy.requestDisableBatteryOptimization(),
+                    child: const Text('Disable'),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
           ],

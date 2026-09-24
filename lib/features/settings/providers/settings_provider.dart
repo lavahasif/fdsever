@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/power_service.dart';
 import '../../../core/services/storage_service.dart';
 
 class SettingsProvider extends ChangeNotifier {
   final StorageService _storageService;
+  final PowerService? _powerService;
 
   String _favPort = AppConstants.defaultFavPort;
   String _favIp = AppConstants.defaultFavIp;
@@ -11,8 +13,13 @@ class SettingsProvider extends ChangeNotifier {
   int _timeout2Ms = int.parse(AppConstants.defaultTimeout2Ms);
   ThemeMode _themeMode = ThemeMode.system;
 
-  SettingsProvider(this._storageService) {
+  bool _keepScreenOn = false;
+  bool _keepCpuAwake = false;
+
+  SettingsProvider(this._storageService, [this._powerService]) {
     _loadSettings();
+    _powerService?.batteryOptimizationStream.listen((_) => notifyListeners());
+    _powerService?.wakeLockStream.listen((_) => notifyListeners());
   }
 
   void _loadSettings() {
@@ -29,6 +36,16 @@ class SettingsProvider extends ChangeNotifier {
     } else {
       _themeMode = ThemeMode.system;
     }
+
+    _keepScreenOn = _storageService.getKeepScreenOn();
+    _keepCpuAwake = _storageService.getKeepCpuAwake();
+
+    if (_powerService != null) {
+      if (_keepScreenOn) _powerService.setKeepScreenOn(true);
+      if (_keepCpuAwake) _powerService.setForcedCpuAwake(true);
+      _powerService.checkBatteryOptimization();
+    }
+
     notifyListeners();
   }
 
@@ -37,6 +54,11 @@ class SettingsProvider extends ChangeNotifier {
   int get timeoutMs => _timeoutMs;
   int get timeout2Ms => _timeout2Ms;
   ThemeMode get themeMode => _themeMode;
+
+  bool get keepScreenOn => _keepScreenOn;
+  bool get keepCpuAwake => _keepCpuAwake;
+  bool get isIgnoringBattery => _powerService?.isIgnoringBattery ?? true;
+  bool get isWakeLockHeld => _powerService?.isWakeLockHeld ?? false;
 
   Future<void> saveSettings({
     required String favPort,
@@ -64,6 +86,35 @@ class SettingsProvider extends ChangeNotifier {
             ? 'dark'
             : 'system';
     await _storageService.setThemeMode(modeStr);
+    notifyListeners();
+  }
+
+  Future<void> toggleKeepScreenOn(bool enable) async {
+    _keepScreenOn = enable;
+    await _storageService.setKeepScreenOn(enable);
+    await _powerService?.setKeepScreenOn(enable);
+    notifyListeners();
+  }
+
+  Future<void> toggleKeepCpuAwake(bool enable) async {
+    _keepCpuAwake = enable;
+    await _storageService.setKeepCpuAwake(enable);
+    await _powerService?.setForcedCpuAwake(enable);
+    notifyListeners();
+  }
+
+  Future<bool> requestDisableBatteryOptimization() async {
+    final res = await _powerService?.requestDisableBatteryOptimization() ?? false;
+    notifyListeners();
+    return res;
+  }
+
+  Future<void> openBatterySettings() async {
+    await _powerService?.openBatterySettings();
+  }
+
+  Future<void> refreshBatteryStatus() async {
+    await _powerService?.checkBatteryOptimization();
     notifyListeners();
   }
 }

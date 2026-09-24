@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'core/services/apk_install_service.dart';
 import 'core/services/file_transfer_service.dart';
 import 'core/services/network_service.dart';
+import 'core/services/power_service.dart';
 import 'core/services/proxy_server_service.dart';
 import 'core/services/reverse_proxy_service.dart';
 import 'core/services/socket_service.dart';
@@ -34,6 +35,12 @@ import 'shared/widgets/responsive_sidebar.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final storageService = await StorageService.init();
+  final powerService = PowerService();
+  await powerService.init(
+    initialKeepScreenOn: storageService.getKeepScreenOn(),
+    initialKeepCpuAwake: storageService.getKeepCpuAwake(),
+  );
+
   final networkService = NetworkService();
   final webServerService = WebServerService();
   final whatsappService = WhatsAppService();
@@ -52,7 +59,8 @@ void main() async {
       providers: [
         Provider<StorageService>.value(value: storageService),
         Provider<ApkInstallService>.value(value: apkInstallService),
-        ChangeNotifierProvider(create: (_) => SettingsProvider(storageService)),
+        Provider<PowerService>.value(value: powerService),
+        ChangeNotifierProvider(create: (_) => SettingsProvider(storageService, powerService)),
         ChangeNotifierProvider(create: (_) => NotesProvider(storageService)),
         ChangeNotifierProvider(create: (_) => TutorialsProvider(storageService)),
         ChangeNotifierProvider(
@@ -71,14 +79,14 @@ void main() async {
           create: (_) => FileTransferProvider(fileTransferService, storageService),
         ),
         ChangeNotifierProvider(
-          create: (_) => ApkInstallerProvider(apkInstallService, networkService),
+          create: (_) => ApkInstallerProvider(apkInstallService, networkService, powerService),
         ),
         ChangeNotifierProvider(
           create: (_) => ProxyServerProvider(
             proxyServerService,
             networkService,
             reverseProxyService,
-            storageService,
+            powerService,
           ),
         ),
       ],

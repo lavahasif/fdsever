@@ -5,11 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../../core/services/apk_install_service.dart';
 import '../../../core/services/network_service.dart';
+import '../../../core/services/power_service.dart';
 
 class ApkInstallerProvider extends ChangeNotifier {
   final ApkInstallService _service;
   final NetworkService _networkService;
+  final PowerService? _powerService;
   StreamSubscription<ApkInstallEvent>? _sub;
+  StreamSubscription? _batterySub;
 
   final List<ApkInstallEvent> _log = [];
   bool _isProcessing = false;
@@ -31,14 +34,34 @@ class ApkInstallerProvider extends ChangeNotifier {
   int _bytesDownloaded = 0;
   int _totalBytes = 0;
 
-  ApkInstallerProvider(this._service, this._networkService) {
+  ApkInstallerProvider(this._service, this._networkService, [this._powerService]) {
     _sub = _service.events.listen((event) {
       _log.insert(0, event);
       if (_log.length > 100) _log.removeLast();
       _isProcessing = _service.isProcessing;
       notifyListeners();
     });
+    _batterySub = _powerService?.batteryOptimizationStream.listen((_) => notifyListeners());
     _initDefaultIp();
+  }
+
+  bool get isIgnoringBattery => _powerService?.isIgnoringBattery ?? true;
+  bool get isScreenKeepOn => _powerService?.isScreenKeepOn ?? false;
+
+  Future<bool> requestDisableBatteryOptimization() async {
+    final res = await _powerService?.requestDisableBatteryOptimization() ?? false;
+    notifyListeners();
+    return res;
+  }
+
+  Future<void> openBatterySettings() async {
+    await _powerService?.openBatterySettings();
+  }
+
+  Future<bool> setKeepScreenOn(bool enable) async {
+    final res = await _powerService?.setKeepScreenOn(enable) ?? false;
+    notifyListeners();
+    return res;
   }
 
   List<ApkInstallEvent> get log => List.unmodifiable(_log);
@@ -326,22 +349,26 @@ class ApkInstallerProvider extends ChangeNotifier {
           _isConnected = false;
           _isConnecting = false;
           _connectionStatus = 'Disconnected from PC server';
+          _powerService?.releaseWakeLock('apk_pc_listener');
           notifyListeners();
         },
         onError: (err) {
           _isConnected = false;
           _isConnecting = false;
           _connectionStatus = 'Connection error: $err';
+          _powerService?.releaseWakeLock('apk_pc_listener');
           notifyListeners();
         },
       );
 
+      await _powerService?.acquireWakeLock('apk_pc_listener');
       notifyListeners();
       return true;
     } catch (e) {
       _isConnected = false;
       _isConnecting = false;
       _connectionStatus = 'Failed to connect: $e';
+      _powerService?.releaseWakeLock('apk_pc_listener');
       notifyListeners();
       return false;
     }
@@ -359,6 +386,7 @@ class ApkInstallerProvider extends ChangeNotifier {
     _isConnected = false;
     _isConnecting = false;
     _connectionStatus = 'Disconnected';
+    await _powerService?.releaseWakeLock('apk_pc_listener');
     notifyListeners();
   }
 
@@ -389,6 +417,7 @@ class ApkInstallerProvider extends ChangeNotifier {
       return;
     }
 
+    await _powerService?.acquireWakeLock('apk_download');
     _isDownloading = true;
     _activeJobName = apkName;
     _downloadPercent = 0;
@@ -438,6 +467,8 @@ class ApkInstallerProvider extends ChangeNotifier {
       _isDownloading = false;
       notifyListeners();
       _sendSocketStatus(jobId, 'failed', e.toString());
+    } finally {
+      await _powerService?.releaseWakeLock('apk_download');
     }
   }
 
@@ -470,9 +501,14 @@ class ApkInstallerProvider extends ChangeNotifier {
 
   /// Manual Enqueue APK bytes for installation
   Future<void> installApk(String name, List<int> bytes) async {
-    await _service.enqueue(name, bytes);
-    _isProcessing = _service.isProcessing;
-    notifyListeners();
+    await _powerService?.acquireWakeLock('apk_manual_install');
+    try {
+      await _service.enqueue(name, bytes);
+      _isProcessing = _service.isProcessing;
+      notifyListeners();
+    } finally {
+      await _powerService?.releaseWakeLock('apk_manual_install');
+    }
   }
 
   void clearLog() {
@@ -485,8 +521,12 @@ class ApkInstallerProvider extends ChangeNotifier {
     _searchToken++;
     _isSearchingPc = false;
     _sub?.cancel();
+    _batterySub?.cancel();
     _socketSub?.cancel();
     _pcSocket?.close();
+    _powerService?.releaseWakeLock('apk_pc_listener');
+    _powerService?.releaseWakeLock('apk_download');
+    _powerService?.releaseWakeLock('apk_manual_install');
     super.dispose();
   }
 }

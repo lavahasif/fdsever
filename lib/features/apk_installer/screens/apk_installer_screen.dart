@@ -114,6 +114,47 @@ class _ApkInstallerScreenState extends State<ApkInstallerScreen> {
 
           const SizedBox(height: 20),
 
+          // ── Battery Optimization Alert Banner ──────────────────
+          if (!provider.isIgnoringBattery) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(LucideIcons.triangleAlert, color: Color(0xFFF59E0B), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Battery Optimization is Active',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFFF59E0B)),
+                        ),
+                        Text(
+                          'Android may pause downloads when the screen dies/locks. Remove optimization to keep downloading.',
+                          style: TextStyle(fontSize: 11, color: mutedTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ShadButton(
+                    size: ShadButtonSize.sm,
+                    onPressed: () => provider.requestDisableBatteryOptimization(),
+                    child: const Text('Disable'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
+
           // ── PC Server Connection & Listener Card ────────────────
           Container(
             width: double.infinity,
@@ -290,7 +331,28 @@ class _ApkInstallerScreenState extends State<ApkInstallerScreen> {
                   },
                 ),
 
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
+
+                // Screen Awake Quick Toggle
+                Row(
+                  children: [
+                    Icon(LucideIcons.sunMedium, size: 14, color: mutedTextColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Keep Screen Awake while connected',
+                      style: TextStyle(fontSize: 11, color: mutedTextColor, fontWeight: FontWeight.w500),
+                    ),
+                    const Spacer(),
+                    Transform.scale(
+                      scale: 0.75,
+                      child: Switch(
+                        value: provider.isScreenKeepOn,
+                        onChanged: (val) => provider.setKeepScreenOn(val),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
 
                 // Responsive Action Buttons Wrap
                 Wrap(
