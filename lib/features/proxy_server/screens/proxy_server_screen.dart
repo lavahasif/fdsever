@@ -46,6 +46,10 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
   final _upstreamUserController = TextEditingController();
   final _upstreamPassController = TextEditingController();
 
+  // Traffic Diverter controllers
+  late final TextEditingController _diverterHostController;
+  late final TextEditingController _diverterPortController;
+
   @override
   void initState() {
     super.initState();
@@ -54,8 +58,10 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     _portController = TextEditingController(text: provider.port.toString());
     _reverseHostController = TextEditingController(text: provider.reverseProxyHost);
     _reversePortController = TextEditingController(text: provider.reverseProxyPort.toString());
+    _diverterHostController = TextEditingController(text: provider.diverterHost);
+    _diverterPortController = TextEditingController(text: provider.diverterPort.toString());
     _searchController = TextEditingController(text: provider.searchQuery);
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
 
     _authUsernameController.text = provider.auth.username;
     _authPasswordController.text = provider.auth.password;
@@ -77,6 +83,8 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     _portController.dispose();
     _reverseHostController.dispose();
     _reversePortController.dispose();
+    _diverterHostController.dispose();
+    _diverterPortController.dispose();
     _searchController.dispose();
     _tabController.dispose();
     _routeNameController.dispose();
@@ -133,11 +141,21 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     if (_reverseHostController.text != proxy.reverseProxyHost && !proxy.isReverseProxyRunning) {
       _reverseHostController.text = proxy.reverseProxyHost;
     }
+    if (_diverterHostController.text != proxy.diverterHost && !proxy.isDiverterRunning) {
+      _diverterHostController.text = proxy.diverterHost;
+    }
+    if (_diverterPortController.text != proxy.diverterPort.toString() && !proxy.isDiverterRunning) {
+      _diverterPortController.text = proxy.diverterPort.toString();
+    }
 
     // Determine aggregate status label
     String activeLabel = 'PROXY RUNNING';
-    final bool isAnyActive = proxy.isRunning || proxy.isReverseProxyRunning;
-    if (proxy.isRunning && proxy.isReverseProxyRunning) {
+    final bool isAnyActive = proxy.isRunning || proxy.isReverseProxyRunning || proxy.isDiverterRunning;
+    if (proxy.isDiverterRunning && (proxy.isRunning || proxy.isReverseProxyRunning)) {
+      activeLabel = 'PROXY & TUNNEL ON';
+    } else if (proxy.isDiverterRunning) {
+      activeLabel = 'VPN TUNNEL ON';
+    } else if (proxy.isRunning && proxy.isReverseProxyRunning) {
       activeLabel = 'DUAL PROXIES ON';
     } else if (proxy.isReverseProxyRunning) {
       activeLabel = 'REVERSE PROXY ON';
@@ -229,6 +247,26 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                       Tab(
                         child: Row(
                           children: [
+                            const Icon(LucideIcons.arrowRightLeft, size: 16),
+                            const SizedBox(width: 8),
+                            const Text('Traffic Diverter'),
+                            if (proxy.isDiverterRunning) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Tab(
+                        child: Row(
+                          children: [
                             const Icon(LucideIcons.activity, size: 16),
                             const SizedBox(width: 8),
                             const Text('Traffic Inspector'),
@@ -306,6 +344,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               children: [
                 _buildDashboardTab(context, proxy, isDark),
                 _buildReverseProxyTab(context, proxy, isDark),
+                _buildTrafficDiverterTab(context, proxy, isDark),
                 _buildTrafficInspectorTab(context, proxy, isDark),
                 _buildRulesAndFeaturesTab(context, proxy, isDark),
                 _buildClientSetupTab(context, proxy, isDark),
@@ -1711,6 +1750,905 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
           ),
         ),
       ),
+    );
+  }
+
+  // ==========================================
+  // TAB: TRAFFIC DIVERTER (HOTSPOT CLIENT)
+  // ==========================================
+
+  Widget _buildTrafficDiverterTab(BuildContext context, ProxyServerProvider proxy, bool isDark) {
+    final primaryTextColor = isDark ? const Color(0xFFFAFAFA) : const Color(0xFF09090B);
+    final mutedTextColor = isDark ? const Color(0xFFA1A1AA) : const Color(0xFF71717A);
+    final cardBgColor = isDark ? const Color(0xFF18181B) : Colors.white;
+    final cardBorderColor = isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Traffic Diverter (Super Proxy Client)',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: -0.4,
+                        color: primaryTextColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tunnel 100% of all apps and device traffic directly to another phone\'s EveryProxy on the hotspot via Android VpnService.',
+                      style: TextStyle(color: mutedTextColor, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Error Alert
+          if (proxy.diverterError != null) ...[
+            ShadAlert.destructive(
+              icon: const Icon(LucideIcons.triangleAlert, size: 16),
+              title: const Text('Diverter Error'),
+              description: Text(proxy.diverterError!),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // 1-Click Auto-Discovery Card
+          _buildDiverterAutoDiscoveryCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+
+          const SizedBox(height: 18),
+
+          // Diverter Hero Status Card
+          _buildDiverterHeroCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+
+          const SizedBox(height: 18),
+
+          // Live Metrics Counters
+          _buildDiverterMetrics(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+
+          const SizedBox(height: 18),
+
+          // Target Proxy Configuration Card
+          _buildDiverterConfigCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+
+          const SizedBox(height: 18),
+
+          // Hotspot Step-by-Step Guide Card
+          _buildDiverterHotspotGuide(context, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiverterAutoDiscoveryCard(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? [const Color(0xFF1E1B4B), const Color(0xFF18181B)]
+              : [const Color(0xFFEEF2FF), Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF6366F1).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 500;
+
+          final content = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(LucideIcons.radar, color: Color(0xFF6366F1), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Hotspot 1-Click Auto-Connect',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: primaryTextColor,
+                          ),
+                        ),
+                        Text(
+                          'Scans the hotspot subnet and locks onto Phone B running EveryProxy with zero typing.',
+                          style: TextStyle(fontSize: 12, color: mutedTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (proxy.lastDiscoveredProxy != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(LucideIcons.checkCheck, color: Color(0xFF10B981), size: 14),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Found Phone B: ${proxy.lastDiscoveredProxy!.ip}:${proxy.lastDiscoveredProxy!.port} (${proxy.lastDiscoveredProxy!.protocol} · ${proxy.lastDiscoveredProxy!.latencyMs}ms)',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          );
+
+          final button = ShadButton(
+            onPressed: (proxy.isDiverterRunning || proxy.isScanningProxy)
+                ? null
+                : () async {
+                    final connected = await proxy.autoDiscoverAndConnectHotspot();
+                    if (!context.mounted) return;
+                    if (connected) {
+                      ShadToaster.of(context).show(
+                        ShadToast(
+                          title: const Text('Connected to Hotspot Proxy!'),
+                          description: Text('All device traffic is now diverted through ${proxy.diverterHost}:${proxy.diverterPort}'),
+                        ),
+                      );
+                    }
+                  },
+            backgroundColor: const Color(0xFF6366F1),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (proxy.isScanningProxy) ...[
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Scanning Subnet...', style: TextStyle(fontWeight: FontWeight.bold)),
+                ] else ...[
+                  const Icon(LucideIcons.zap, size: 16, color: Colors.white),
+                  const SizedBox(width: 8),
+                  const Text('Scan & Auto-Connect', style: TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ],
+            ),
+          );
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                content,
+                const SizedBox(height: 12),
+                button,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: content),
+              const SizedBox(width: 16),
+              button,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDiverterHeroCard(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    final isRunning = proxy.isDiverterRunning;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isRunning ? const Color(0xFF10B981) : cardBorderColor,
+          width: isRunning ? 1.5 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 450;
+
+          final statusSection = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: isRunning ? const Color(0xFF10B981) : Colors.grey,
+                      shape: BoxShape.circle,
+                      boxShadow: isRunning
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                                blurRadius: 6,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    isRunning ? 'VPN TUNNEL ACTIVE' : 'DIVERTER STOPPED',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                      color: isRunning ? const Color(0xFF10B981) : mutedTextColor,
+                    ),
+                  ),
+                  if (isRunning) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('ALL APPS DIVERTED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isRunning
+                    ? 'Target: ${proxy.diverterHost}:${proxy.diverterPort} (${proxy.diverterProtocol})'
+                    : 'Target proxy: ${proxy.diverterHost}:${proxy.diverterPort}',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.2,
+                  color: primaryTextColor,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Text('🔑 ', style: TextStyle(fontSize: 12)),
+                  Expanded(
+                    child: Text(
+                      isRunning
+                          ? 'Android VPN Key active. 100% of phone traffic is routing through Phone B.'
+                          : 'Tap start to tunnel all phone traffic directly to the target proxy IP & port.',
+                      style: TextStyle(fontSize: 12, color: mutedTextColor),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+
+          final actionButton = ShadButton(
+            size: ShadButtonSize.lg,
+            onPressed: proxy.isDiverterLoading
+                ? null
+                : () async {
+                    await proxy.toggleDiverter();
+                  },
+            backgroundColor: isRunning ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (proxy.isDiverterLoading) ...[
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Connecting...'),
+                ] else if (isRunning) ...[
+                  const Icon(LucideIcons.shieldOff, size: 18, color: Colors.white),
+                  const SizedBox(width: 8),
+                  const Text('Stop Diverter', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                ] else ...[
+                  const Icon(LucideIcons.shieldCheck, size: 18, color: Colors.white),
+                  const SizedBox(width: 8),
+                  const Text('Start Diverting', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                ],
+              ],
+            ),
+          );
+
+          if (isNarrow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                statusSection,
+                const SizedBox(height: 16),
+                actionButton,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: statusSection),
+              const SizedBox(width: 16),
+              actionButton,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDiverterMetrics(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    final downKbps = (proxy.diverterDownloadSpeed * 8 / 1024).toStringAsFixed(1);
+    final upKbps = (proxy.diverterUploadSpeed * 8 / 1024).toStringAsFixed(1);
+    final totalMb = ((proxy.diverterBytesIn + proxy.diverterBytesOut) / (1024 * 1024)).toStringAsFixed(2);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 600;
+        final itemWidth = isWide ? (constraints.maxWidth - 36) / 4 : (constraints.maxWidth - 12) / 2;
+
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _buildDiverterGaugeCard(
+              title: 'Download Speed',
+              value: '$downKbps Kbps',
+              icon: LucideIcons.arrowDownToLine,
+              color: const Color(0xFF10B981),
+              width: itemWidth,
+              isDark: isDark,
+              cardBgColor: cardBgColor,
+              cardBorderColor: cardBorderColor,
+              primaryTextColor: primaryTextColor,
+              mutedTextColor: mutedTextColor,
+            ),
+            _buildDiverterGaugeCard(
+              title: 'Upload Speed',
+              value: '$upKbps Kbps',
+              icon: LucideIcons.arrowUpFromLine,
+              color: const Color(0xFF3B82F6),
+              width: itemWidth,
+              isDark: isDark,
+              cardBgColor: cardBgColor,
+              cardBorderColor: cardBorderColor,
+              primaryTextColor: primaryTextColor,
+              mutedTextColor: mutedTextColor,
+            ),
+            _buildDiverterGaugeCard(
+              title: 'Total Diverted',
+              value: '$totalMb MB',
+              icon: LucideIcons.database,
+              color: const Color(0xFF8B5CF6),
+              width: itemWidth,
+              isDark: isDark,
+              cardBgColor: cardBgColor,
+              cardBorderColor: cardBorderColor,
+              primaryTextColor: primaryTextColor,
+              mutedTextColor: mutedTextColor,
+            ),
+            _buildDiverterGaugeCard(
+              title: 'Protocol & Port',
+              value: '${proxy.diverterProtocol} :${proxy.diverterPort}',
+              icon: LucideIcons.network,
+              color: const Color(0xFFF59E0B),
+              width: itemWidth,
+              isDark: isDark,
+              cardBgColor: cardBgColor,
+              cardBorderColor: cardBorderColor,
+              primaryTextColor: primaryTextColor,
+              mutedTextColor: mutedTextColor,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDiverterGaugeCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required Color color,
+    required double width,
+    required bool isDark,
+    required Color cardBgColor,
+    required Color cardBorderColor,
+    required Color primaryTextColor,
+    required Color mutedTextColor,
+  }) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cardBorderColor),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 16),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 11, color: mutedTextColor, fontWeight: FontWeight.w500),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: primaryTextColor,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiverterConfigCard(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.slidersHorizontal, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'Target Proxy Configuration',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryTextColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Specify the IP and port of Phone B (or any local/remote proxy) to divert all traffic through.',
+            style: TextStyle(fontSize: 12, color: mutedTextColor),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Host & Port Row (Responsive)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 450;
+
+              final hostInput = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Target IP / Host', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: primaryTextColor)),
+                  const SizedBox(height: 6),
+                  ShadInput(
+                    controller: _diverterHostController,
+                    enabled: !proxy.isDiverterRunning,
+                    placeholder: const Text('192.168.43.1'),
+                    onChanged: (val) => proxy.setDiverterHost(val),
+                  ),
+                ],
+              );
+
+              final portInput = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Target Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: primaryTextColor)),
+                  const SizedBox(height: 6),
+                  ShadInput(
+                    controller: _diverterPortController,
+                    enabled: !proxy.isDiverterRunning,
+                    placeholder: const Text('1080'),
+                    keyboardType: TextInputType.number,
+                    onChanged: (val) {
+                      final p = int.tryParse(val);
+                      if (p != null && p > 0 && p <= 65535) {
+                        proxy.setDiverterPort(p);
+                      }
+                    },
+                  ),
+                ],
+              );
+
+              if (isCompact) {
+                return Column(
+                  children: [
+                    hostInput,
+                    const SizedBox(height: 12),
+                    portInput,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(flex: 3, child: hostInput),
+                  const SizedBox(width: 14),
+                  Expanded(flex: 2, child: portInput),
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 14),
+
+          // Quick Host & Port Presets
+          if (!proxy.isDiverterRunning) ...[
+            Text('Quick Shortcuts:', style: TextStyle(fontSize: 11, color: mutedTextColor, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildQuickChip(
+                  label: 'Hotspot Gateway (192.168.43.1)',
+                  onTap: () {
+                    _diverterHostController.text = '192.168.43.1';
+                    proxy.setDiverterHost('192.168.43.1');
+                  },
+                  isSelected: proxy.diverterHost == '192.168.43.1',
+                ),
+                _buildQuickChip(
+                  label: 'SOCKS5 (1080)',
+                  onTap: () {
+                    _diverterPortController.text = '1080';
+                    proxy.setDiverterPort(1080);
+                    proxy.setDiverterProtocol('SOCKS5');
+                  },
+                  isSelected: proxy.diverterPort == 1080,
+                ),
+                _buildQuickChip(
+                  label: 'HTTP (8080)',
+                  onTap: () {
+                    _diverterPortController.text = '8080';
+                    proxy.setDiverterPort(8080);
+                    proxy.setDiverterProtocol('HTTP');
+                  },
+                  isSelected: proxy.diverterPort == 8080,
+                ),
+                _buildQuickChip(
+                  label: 'Local Proxy (8888)',
+                  onTap: () {
+                    _diverterPortController.text = '8888';
+                    proxy.setDiverterPort(8888);
+                  },
+                  isSelected: proxy.diverterPort == 8888,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Protocol Selector (SOCKS5 vs HTTP)
+          Text('Proxy Protocol', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: primaryTextColor)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              _buildProtocolPill(
+                title: 'SOCKS5 (Recommended)',
+                description: 'Best for all apps, UDP, TCP, games & chat',
+                protocol: 'SOCKS5',
+                current: proxy.diverterProtocol,
+                enabled: !proxy.isDiverterRunning,
+                onTap: () => proxy.setDiverterProtocol('SOCKS5'),
+              ),
+              _buildProtocolPill(
+                title: 'HTTP CONNECT',
+                description: 'Standard HTTP tunnel proxy',
+                protocol: 'HTTP',
+                current: proxy.diverterProtocol,
+                enabled: !proxy.isDiverterRunning,
+                onTap: () => proxy.setDiverterProtocol('HTTP'),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 18),
+          const Divider(height: 1),
+          const SizedBox(height: 14),
+
+          // Bypass Local LAN Switch
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Bypass Local LAN Traffic', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: primaryTextColor)),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Keep private networks (192.168.x.x, 10.x.x.x) direct so local routers and printers remain accessible.',
+                      style: TextStyle(fontSize: 11, color: mutedTextColor),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: proxy.diverterBypassLan,
+                onChanged: proxy.isDiverterRunning ? null : (val) => proxy.setDiverterBypassLan(val),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickChip({required String label, required VoidCallback onTap, required bool isSelected}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF3B82F6).withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF3B82F6) : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? const Color(0xFF3B82F6) : null,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProtocolPill({
+    required String title,
+    required String description,
+    required String protocol,
+    required String current,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    final isSelected = protocol == current;
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF3B82F6).withValues(alpha: 0.12) : Colors.grey.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF3B82F6) : Colors.transparent,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? const Color(0xFF3B82F6) : null,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              description,
+              style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiverterHotspotGuide(
+    BuildContext context,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.helpCircle, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                'How Hotspot Proxy Diversion Works',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryTextColor),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildGuideStep(
+            step: '1',
+            title: 'Turn on Mobile Hotspot',
+            description: 'Turn on Hotspot on Phone A. Connect Phone B to this Hotspot Wi-Fi network.',
+            primaryTextColor: primaryTextColor,
+            mutedTextColor: mutedTextColor,
+          ),
+          const SizedBox(height: 10),
+          _buildGuideStep(
+            step: '2',
+            title: 'Open EveryProxy on Connected Phone',
+            description: 'On Phone B, start EveryProxy with SOCKS5 (port 1080) or HTTP (port 8080).',
+            primaryTextColor: primaryTextColor,
+            mutedTextColor: mutedTextColor,
+          ),
+          const SizedBox(height: 10),
+          _buildGuideStep(
+            step: '3',
+            title: 'Tap "Scan & Auto-Connect" Above',
+            description: 'FDServer creates an Android VpnService TUN tunnel. 100% of all apps on this phone will seamlessly route their internet requests through Phone B without root!',
+            primaryTextColor: primaryTextColor,
+            mutedTextColor: mutedTextColor,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGuideStep({
+    required String step,
+    required String title,
+    required String description,
+    required Color primaryTextColor,
+    required Color mutedTextColor,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 22,
+          height: 22,
+          decoration: BoxDecoration(
+            color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            step,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF3B82F6)),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: primaryTextColor)),
+              const SizedBox(height: 2),
+              Text(description, style: TextStyle(fontSize: 11, color: mutedTextColor, height: 1.35)),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

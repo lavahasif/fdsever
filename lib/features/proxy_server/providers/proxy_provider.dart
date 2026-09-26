@@ -5,12 +5,14 @@ import '../../../core/services/network_service.dart';
 import '../../../core/services/power_service.dart';
 import '../../../core/services/proxy_server_service.dart';
 import '../../../core/services/reverse_proxy_service.dart';
+import '../../../core/services/vpn_diverter_service.dart';
 
 class ProxyServerProvider extends ChangeNotifier {
   final ProxyServerService _service;
   final NetworkService _networkService;
   final ReverseProxyService _reverseProxyService;
   final PowerService? _powerService;
+  final VpnDiverterService _vpnDiverterService;
   StreamSubscription? _batterySub;
 
   String _host = '0.0.0.0';
@@ -26,6 +28,16 @@ class ProxyServerProvider extends ChangeNotifier {
   String? _reverseProxyError;
   List<ReverseProxyRoute> _reverseProxyRoutes = [];
   bool _isCheckingHealth = false;
+
+  // Traffic Diverter (Hotspot / Super Proxy Client) State
+  String _diverterHost = '192.168.43.1';
+  int _diverterPort = 1080;
+  String _diverterProtocol = 'SOCKS5';
+  bool _diverterBypassLan = true;
+  bool _isDiverterLoading = false;
+  bool _isScanningProxy = false;
+  String? _diverterError;
+  DiscoveredProxy? _lastDiscoveredProxy;
 
   List<Map<String, String>> _systemIps = [];
   String _primaryIp = '127.0.0.1';
@@ -44,20 +56,37 @@ class ProxyServerProvider extends ChangeNotifier {
     Object? serviceA,
     Object? serviceB,
     Object? serviceC,
+    Object? serviceD,
   ])  : _reverseProxyService = (serviceA is ReverseProxyService
             ? serviceA
             : (serviceB is ReverseProxyService
                 ? serviceB
-                : (serviceC is ReverseProxyService ? serviceC : null))) ??
+                : (serviceC is ReverseProxyService
+                    ? serviceC
+                    : (serviceD is ReverseProxyService ? serviceD : null)))) ??
         ReverseProxyService(),
         _powerService = (serviceA is PowerService
             ? serviceA
             : (serviceB is PowerService
                 ? serviceB
-                : (serviceC is PowerService ? serviceC : null))) {
+                : (serviceC is PowerService
+                    ? serviceC
+                    : (serviceD is PowerService ? serviceD : null)))),
+        _vpnDiverterService = (serviceA is VpnDiverterService
+            ? serviceA
+            : (serviceB is VpnDiverterService
+                ? serviceB
+                : (serviceC is VpnDiverterService
+                    ? serviceC
+                    : (serviceD is VpnDiverterService ? serviceD : null)))) ??
+        VpnDiverterService() {
     _service.logsStream.listen((_) => notifyListeners());
     _reverseProxyService.onLog = (entry) => _service.addExternalLog(entry);
     _batterySub = _powerService?.batteryOptimizationStream.listen((_) => notifyListeners());
+
+    _vpnDiverterService.startTicker(() {
+      notifyListeners();
+    });
 
     // Load default preset rules and reverse proxy routes
     _loadInitialRules();
@@ -467,6 +496,101 @@ class ProxyServerProvider extends ChangeNotifier {
     }
   }
 
+  // ── Traffic Diverter (Hotspot & Super Proxy Client) ──────────────────────
+  bool get isDiverterRunning => _vpnDiverterService.isRunning;
+  String get diverterHost => _diverterHost;
+  int get diverterPort => _diverterPort;
+  String get diverterProtocol => _diverterProtocol;
+  bool get diverterBypassLan => _diverterBypassLan;
+  bool get isDiverterLoading => _isDiverterLoading;
+  bool get isScanningProxy => _isScanningProxy;
+  String? get diverterError => _diverterError;
+  DiscoveredProxy? get lastDiscoveredProxy => _lastDiscoveredProxy;
+
+  int get diverterBytesIn => _vpnDiverterService.bytesIn;
+  int get diverterBytesOut => _vpnDiverterService.bytesOut;
+  int get diverterDownloadSpeed => _vpnDiverterService.downloadSpeedBps;
+  int get diverterUploadSpeed => _vpnDiverterService.uploadSpeedBps;
+
+  void setDiverterHost(String host) {
+    _diverterHost = host.trim();
+    notifyListeners();
+  }
+
+  void setDiverterPort(int port) {
+    _diverterPort = port;
+    notifyListeners();
+  }
+
+  void setDiverterProtocol(String protocol) {
+    _diverterProtocol = protocol.toUpperCase();
+    notifyListeners();
+  }
+
+  void setDiverterBypassLan(bool bypass) {
+    _diverterBypassLan = bypass;
+    notifyListeners();
+  }
+
+  Future<bool> toggleDiverter() async {
+    _isDiverterLoading = true;
+    _diverterError = null;
+    notifyListeners();
+
+    bool result = false;
+    if (_vpnDiverterService.isRunning) {
+      result = await _vpnDiverterService.stopVpn();
+      await _powerService?.releaseWakeLock('vpn_diverter');
+    } else {
+      result = await _vpnDiverterService.startVpn(
+        host: _diverterHost,
+        port: _diverterPort,
+        protocol: _diverterProtocol,
+        bypassLan: _diverterBypassLan,
+      );
+      if (result) {
+        await _powerService?.acquireWakeLock('vpn_diverter');
+      } else {
+        _diverterError = _vpnDiverterService.lastError ?? 'Failed to start VPN tunnel.';
+      }
+    }
+
+    _isDiverterLoading = false;
+    notifyListeners();
+    return result;
+  }
+
+  /// Fast-scans the Hotspot subnet for Phone B running EveryProxy
+  /// and automatically connects when found!
+  Future<bool> autoDiscoverAndConnectHotspot() async {
+    _isScanningProxy = true;
+    _diverterError = null;
+    notifyListeners();
+
+    try {
+      final discovered = await _vpnDiverterService.autoDiscoverHotspotProxy();
+      if (discovered != null) {
+        _lastDiscoveredProxy = discovered;
+        _diverterHost = discovered.ip;
+        _diverterPort = discovered.port;
+        _diverterProtocol = discovered.protocol;
+        _isScanningProxy = false;
+        notifyListeners();
+
+        // Auto-connect immediately
+        return await toggleDiverter();
+      } else {
+        _diverterError = 'No proxy server found on hotspot. Ensure EveryProxy is running on the other phone.';
+      }
+    } catch (e) {
+      _diverterError = 'Scan error: $e';
+    }
+
+    _isScanningProxy = false;
+    notifyListeners();
+    return false;
+  }
+
   bool _isDisposed = false;
 
   @override
@@ -482,6 +606,8 @@ class ProxyServerProvider extends ChangeNotifier {
     _batterySub?.cancel();
     _powerService?.releaseWakeLock('forward_proxy');
     _powerService?.releaseWakeLock('reverse_proxy');
+    _powerService?.releaseWakeLock('vpn_diverter');
+    _vpnDiverterService.dispose();
     _metricsTimer?.cancel();
     _service.dispose();
     _reverseProxyService.dispose();

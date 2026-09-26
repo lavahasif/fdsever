@@ -8,6 +8,8 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.core.content.FileProvider
+import android.net.VpnService
+import com.hasif.fdserver.fdserver.vpn.ProxyVpnService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -17,6 +19,9 @@ class MainActivity : FlutterActivity() {
 
     private val APK_CHANNEL = "fdserver/apk_install"
     private val POWER_CHANNEL = "fdserver/power"
+    private val VPN_CHANNEL = "fdserver/vpn"
+    private val VPN_REQUEST_CODE = 2048
+    private var vpnPendingResult: MethodChannel.Result? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var isScreenKeepOn: Boolean = false
@@ -198,6 +203,74 @@ class MainActivity : FlutterActivity() {
 
                 else -> result.notImplemented()
             }
+        }
+
+        // ── VPN Proxy Diverter Channel ─────────────────────────────────────
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VPN_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "prepareVpn" -> {
+                    val intent = VpnService.prepare(this)
+                    if (intent != null) {
+                        vpnPendingResult = result
+                        startActivityForResult(intent, VPN_REQUEST_CODE)
+                    } else {
+                        result.success(true) // Permission already granted
+                    }
+                }
+
+                "startVpn" -> {
+                    val host = call.argument<String>("host") ?: "192.168.43.1"
+                    val port = call.argument<Int>("port") ?: 1080
+                    val protocol = call.argument<String>("protocol") ?: "SOCKS5"
+                    val bypassLan = call.argument<Boolean>("bypassLan") ?: true
+
+                    val intent = Intent(this, ProxyVpnService::class.java).apply {
+                        action = ProxyVpnService.ACTION_START
+                        putExtra(ProxyVpnService.EXTRA_HOST, host)
+                        putExtra(ProxyVpnService.EXTRA_PORT, port)
+                        putExtra(ProxyVpnService.EXTRA_PROTOCOL, protocol)
+                        putExtra(ProxyVpnService.EXTRA_BYPASS_LAN, bypassLan)
+                    }
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    result.success(true)
+                }
+
+                "stopVpn" -> {
+                    val intent = Intent(this, ProxyVpnService::class.java).apply {
+                        action = ProxyVpnService.ACTION_STOP
+                    }
+                    startService(intent)
+                    result.success(true)
+                }
+
+                "getVpnStatus" -> {
+                    val status = mapOf(
+                        "isRunning" to ProxyVpnService.isRunning,
+                        "targetHost" to ProxyVpnService.targetHost,
+                        "targetPort" to ProxyVpnService.targetPort,
+                        "targetProtocol" to ProxyVpnService.targetProtocol,
+                        "bytesIn" to ProxyVpnService.totalBytesIn.get(),
+                        "bytesOut" to ProxyVpnService.totalBytesOut.get(),
+                        "lastError" to ProxyVpnService.lastError
+                    )
+                    result.success(status)
+                }
+
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_REQUEST_CODE) {
+            vpnPendingResult?.success(resultCode == RESULT_OK)
+            vpnPendingResult = null
         }
     }
 

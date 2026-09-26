@@ -10,6 +10,7 @@ import 'core/services/proxy_server_service.dart';
 import 'core/services/reverse_proxy_service.dart';
 import 'core/services/socket_service.dart';
 import 'core/services/storage_service.dart';
+import 'core/services/vpn_diverter_service.dart';
 import 'core/services/web_server_service.dart';
 import 'core/services/whatsapp_service.dart';
 import 'core/theme/app_theme.dart';
@@ -49,6 +50,7 @@ void main() async {
   final apkInstallService = ApkInstallService();
   final proxyServerService = ProxyServerService();
   final reverseProxyService = ReverseProxyService();
+  final vpnDiverterService = VpnDiverterService();
 
   // Wire APK install service into HTTP and WebSocket servers
   webServerService.apkInstallService = apkInstallService;
@@ -60,6 +62,7 @@ void main() async {
         Provider<StorageService>.value(value: storageService),
         Provider<ApkInstallService>.value(value: apkInstallService),
         Provider<PowerService>.value(value: powerService),
+        Provider<VpnDiverterService>.value(value: vpnDiverterService),
         ChangeNotifierProvider(create: (_) => SettingsProvider(storageService, powerService)),
         ChangeNotifierProvider(create: (_) => NotesProvider(storageService)),
         ChangeNotifierProvider(create: (_) => TutorialsProvider(storageService)),
@@ -87,6 +90,7 @@ void main() async {
             networkService,
             reverseProxyService,
             powerService,
+            vpnDiverterService,
           ),
         ),
       ],
