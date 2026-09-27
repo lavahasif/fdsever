@@ -160,9 +160,12 @@ class _WebServerScreenState extends State<WebServerScreen> {
                             color: serverProvider.host == '0.0.0.0' ? Colors.blue : Colors.grey,
                           ),
                           const SizedBox(width: 6),
-                          const Text(
-                            '0.0.0.0 (All Interfaces)',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          const Flexible(
+                            child: Text(
+                              '0.0.0.0 (All Interfaces)',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
                       ),
@@ -199,9 +202,12 @@ class _WebServerScreenState extends State<WebServerScreen> {
                               color: isSelected ? Colors.green : Colors.grey,
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              '$name: $ip',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                            Flexible(
+                              child: Text(
+                                '$name: $ip',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                             if (ip == serverProvider.primaryIp && !isLoopback) ...[
                               const SizedBox(width: 6),
@@ -352,8 +358,11 @@ class _WebServerScreenState extends State<WebServerScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Live Server Requests',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              const Expanded(
+                child: Text('Live Server Requests',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 8),
               Text('${serverProvider.logs.length} events',
                   style: const TextStyle(fontSize: 12, color: Colors.grey)),
             ],

@@ -171,49 +171,81 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
 
           // Target Destination Card
           ShadCard(
-            title: Row(
-              children: [
-                const Icon(LucideIcons.radio, size: 16),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Target Receiver Endpoint',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (scannerProvider.primaryIp.isNotEmpty)
-                  InkWell(
-                    onTap: () {
-                      _ipController.text = scannerProvider.primaryIp;
-                      transferProvider.setDestinationIp(scannerProvider.primaryIp);
-                      ShadToaster.of(context).show(
-                        ShadToast(
-                          title: const Text('Target Updated'),
-                          description: Text('Filled local IP: ${scannerProvider.primaryIp}'),
+            title: LayoutBuilder(
+              builder: (context, cardConstraints) {
+                final isNarrow = cardConstraints.maxWidth < 360;
+                final chip = scannerProvider.primaryIp.isNotEmpty
+                    ? InkWell(
+                        onTap: () {
+                          _ipController.text = scannerProvider.primaryIp;
+                          transferProvider.setDestinationIp(scannerProvider.primaryIp);
+                          ShadToaster.of(context).show(
+                            ShadToast(
+                              title: const Text('Target Updated'),
+                              description: Text('Filled local IP: ${scannerProvider.primaryIp}'),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(LucideIcons.sparkles, size: 12, color: Colors.blue.shade400),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Use Local IP (${scannerProvider.primaryIp})',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blue.shade400,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(6),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(LucideIcons.sparkles, size: 12, color: Colors.blue.shade400),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Use Local IP (${scannerProvider.primaryIp})',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.blue.shade400,
-                              fontWeight: FontWeight.w600,
+                      )
+                    : null;
+
+                if (isNarrow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(LucideIcons.radio, size: 16),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Target Receiver Endpoint',
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
                       ),
+                      if (chip != null) ...[
+                        const SizedBox(height: 6),
+                        chip,
+                      ],
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    const Icon(LucideIcons.radio, size: 16),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Target Receiver Endpoint',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-              ],
+                    if (chip != null) chip,
+                  ],
+                );
+              },
             ),
             description: const Text('Configure remote IP address and listening port for file receiving.'),
             child: Padding(

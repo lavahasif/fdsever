@@ -209,9 +209,43 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     }
   }
 
+  int get _bottomNavIndex {
+    if (_selectedPillar == 0) return 0;
+    if (_selectedPillar == 1 && _serverSubIndex == 1) return 1; // Diverter
+    if (_selectedPillar == 1) return 2; // Server
+    if (_selectedPillar == 2) return 3; // Transfer
+    if (_selectedPillar == 3) return 4; // Workspace
+    if (_selectedPillar == 4) return 5; // Settings
+    return 0;
+  }
+
+  void _onBottomNavSelected(int index) {
+    switch (index) {
+      case 0:
+        _onNavigate(0);
+        break;
+      case 1:
+        _onNavigate(1, 1);
+        break;
+      case 2:
+        _onNavigate(1, _serverSubIndex == 1 ? 0 : _serverSubIndex);
+        break;
+      case 3:
+        _onNavigate(2);
+        break;
+      case 4:
+        _onNavigate(3);
+        break;
+      case 5:
+        _onNavigate(4);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final proxy = context.watch<ProxyServerProvider>();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -272,26 +306,42 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           bottomNavigationBar: isDesktopOrTablet
               ? null
               : NavigationBar(
-                  selectedIndex: _selectedPillar,
-                  onDestinationSelected: (index) => _onNavigate(index),
-                  destinations: const [
-                    NavigationDestination(
+                  selectedIndex: _bottomNavIndex,
+                  onDestinationSelected: _onBottomNavSelected,
+                  destinations: [
+                    const NavigationDestination(
+                      key: Key('bottom_nav_hub'),
                       icon: Icon(LucideIcons.layoutDashboard),
                       label: 'Hub',
                     ),
                     NavigationDestination(
+                      key: const Key('bottom_nav_diverter'),
+                      icon: proxy.isDiverterRunning
+                          ? const Badge(
+                              backgroundColor: Color(0xFF10B981),
+                              smallSize: 8,
+                              child: Icon(LucideIcons.route),
+                            )
+                          : const Icon(LucideIcons.route),
+                      label: 'Diverter',
+                    ),
+                    const NavigationDestination(
+                      key: Key('bottom_nav_server'),
                       icon: Icon(LucideIcons.globe),
                       label: 'Server',
                     ),
-                    NavigationDestination(
+                    const NavigationDestination(
+                      key: Key('bottom_nav_transfer'),
                       icon: Icon(LucideIcons.uploadCloud),
                       label: 'Transfer',
                     ),
-                    NavigationDestination(
+                    const NavigationDestination(
+                      key: Key('bottom_nav_workspace'),
                       icon: Icon(LucideIcons.notebookPen),
                       label: 'Workspace',
                     ),
-                    NavigationDestination(
+                    const NavigationDestination(
+                      key: Key('bottom_nav_settings'),
                       icon: Icon(LucideIcons.settings),
                       label: 'Settings',
                     ),

@@ -50,6 +50,18 @@ class _ServerHubScreenState extends State<ServerHubScreen> {
         showActiveDot: webServer.isRunning,
         badgeText: webServer.isRunning ? ':${webServer.port}' : null,
       ),
+      CategoryTabItem(
+        title: 'Traffic Diverter',
+        icon: LucideIcons.route,
+        showActiveDot: proxy.isDiverterRunning,
+        badgeText: proxy.isDiverterRunning ? 'ACTIVE' : null,
+      ),
+      CategoryTabItem(
+        title: 'Proxy Server',
+        icon: LucideIcons.shieldCheck,
+        showActiveDot: proxy.isRunning,
+        badgeText: proxy.isRunning ? ':${proxy.port}' : null,
+      ),
       const CategoryTabItem(
         title: 'Port Scanner',
         icon: LucideIcons.radar,
@@ -60,24 +72,21 @@ class _ServerHubScreenState extends State<ServerHubScreen> {
         showActiveDot: realtime.isServerRunning || realtime.isClientConnected,
         badgeText: realtime.isServerRunning ? 'Server' : (realtime.isClientConnected ? 'Client' : null),
       ),
-      CategoryTabItem(
-        title: 'Proxy Server',
-        icon: LucideIcons.shieldCheck,
-        showActiveDot: proxy.isRunning,
-        badgeText: proxy.isRunning ? ':${proxy.port}' : null,
-      ),
     ];
 
     Widget body;
     switch (_selectedSubIndex) {
       case 1:
-        body = const ScannerScreen();
+        body = const ProxyServerScreen(initialTabIndex: 2);
         break;
       case 2:
-        body = const RealtimeScreen();
+        body = const ProxyServerScreen(initialTabIndex: 0);
         break;
       case 3:
-        body = const ProxyServerScreen();
+        body = const ScannerScreen();
+        break;
+      case 4:
+        body = const RealtimeScreen();
         break;
       case 0:
       default:

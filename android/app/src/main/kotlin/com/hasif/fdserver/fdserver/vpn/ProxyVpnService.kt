@@ -49,7 +49,8 @@ class ProxyVpnService : VpnService() {
         val clientAckedSeq: AtomicLong = AtomicLong(0),
         val clientWindow: AtomicLong = AtomicLong(65535),
         val outboundQueue: ConcurrentLinkedDeque<ByteArray> = ConcurrentLinkedDeque(),
-        val isDrainingOutbound: AtomicBoolean = AtomicBoolean(false)
+        val isDrainingOutbound: AtomicBoolean = AtomicBoolean(false),
+        @Volatile var proxyOutputStream: OutputStream? = null
     )
 
     companion object {
@@ -207,6 +208,8 @@ class ProxyVpnService : VpnService() {
                 val builder = Builder()
                     .setSession("FDServer Proxy Diverter")
                     .addAddress("10.0.0.2", 24)
+                    .addAddress("fd00::1", 128)
+                    .addRoute("::", 0)
                     .addDnsServer("8.8.8.8")
                     .addDnsServer("1.1.1.1")
                     .setMtu(1500)
@@ -321,6 +324,10 @@ class ProxyVpnService : VpnService() {
     private fun processIpPacket(packet: ByteArray, length: Int) {
         if (length < 20) return
         val version = (packet[0].toInt() shr 4) and 0x0F
+        if (version == 6) {
+            // Drop IPv6 traffic cleanly so Android and apps immediately fall back to IPv4
+            return
+        }
         if (version != 4) return // Only IPv4 for proxy redirect
 
         val protocol = packet[9].toInt() and 0xFF
@@ -329,8 +336,9 @@ class ProxyVpnService : VpnService() {
         val srcIp = "${packet[12].toInt() and 0xFF}.${packet[13].toInt() and 0xFF}.${packet[14].toInt() and 0xFF}.${packet[15].toInt() and 0xFF}"
         val dstIp = "${packet[16].toInt() and 0xFF}.${packet[17].toInt() and 0xFF}.${packet[18].toInt() and 0xFF}.${packet[19].toInt() and 0xFF}"
 
-        // Skip internal loopback and LAN subnets if bypassLan is active
+        // Skip internal loopback, target proxy host itself, and LAN subnets if bypassLan is active
         if (dstIp.startsWith("10.0.0.") || dstIp == "127.0.0.1") return
+        if (dstIp == targetHost) return
         if (bypassLanEnabled && isLanIp(dstIp)) return
 
         // Handle UDP (Protocol 17)
@@ -427,6 +435,10 @@ class ProxyVpnService : VpnService() {
                 val payloadOffset = headerLen + tcpHeaderLen
                 val payloadLen = length - payloadOffset
 
+                if (payloadLen > 0 || isFin || isRst) {
+                    logDiag("[TUN-IN-PKT] $connKey len=$length payLen=$payloadLen flags=0x${flags.toString(16)}")
+                }
+
                 if (isFin || isRst) {
                     val clientSeq = ((packet[headerLen + 4].toLong() and 0xFF) shl 24) or
                                     ((packet[headerLen + 5].toLong() and 0xFF) shl 16) or
@@ -474,10 +486,12 @@ class ProxyVpnService : VpnService() {
 
                     val expectedAck = session.clientAck.get()
                     val diff = ((clientSeq + payloadLen - expectedAck).toInt())
+                    logDiag("[TCP-CHECK] $connKey seq=$clientSeq expAck=$expectedAck diff=$diff payLen=$payloadLen")
 
                     // TCP Retransmission detection: if client is sending bytes we already acknowledged,
                     // do NOT send duplicate bytes to proxy (which corrupts TLS/HTTP streams).
                     if (diff <= 0) {
+                        logDiag("[TCP-RETRANS-DROP] $connKey seq=$clientSeq payLen=$payloadLen diff=$diff expAck=$expectedAck")
                         // Entire packet is duplicate; just re-ACK expected sequence
                         sendTcpPacket(
                             srcIp = dstIp,
@@ -495,6 +509,7 @@ class ProxyVpnService : VpnService() {
                     // Gap detection: if clientSeq is ahead of expected contiguous sequence,
                     // do NOT advance clientAck beyond the gap! Send duplicate ACK so client retransmits.
                     if (clientSeq > expectedAck) {
+                        logDiag("[TCP-GAP-DROP] $connKey seq=$clientSeq > expAck=$expectedAck payLen=$payloadLen")
                         sendTcpPacket(
                             srcIp = dstIp,
                             srcPort = dstPort,
@@ -589,25 +604,28 @@ class ProxyVpnService : VpnService() {
         try {
             logDiag("[TUNNEL] Opening socket to target proxy $targetHost:$targetPort for destination ${session.dstIp}:${session.dstPort}...")
 
-            // Use SocketChannel.open() so Linux allocates a real socket file descriptor BEFORE protect()!
-            val channel = SocketChannel.open()
-            proxySocket = channel.socket()
-            proxySocket.soTimeout = 15000 // 15s timeout for handshake
+            // Use standard java.net.Socket with ephemeral bind so Linux allocates a real socket FD before protect()!
+            // Unlike SocketChannel's SocketAdaptor, standard Socket does NOT share a monitor lock between InputStream and OutputStream!
+            val proxySock = Socket()
+            proxySock.bind(null)
+            proxySock.soTimeout = 15000 // 15s timeout for handshake
 
             // CRITICAL: Protect socket so its packets bypass the VPN TUN and go straight to Wi-Fi/Hotspot!
-            val protectOk = protect(proxySocket)
+            val protectOk = protect(proxySock)
             logDiag("[SOCKET-PROTECT] protect(socket) result: $protectOk")
             if (!protectOk) {
                 logDiag("[TUNNEL-WARN] protect(socket) returned false! Traffic may loop back.")
             }
 
-            proxySocket.connect(InetSocketAddress(targetHost, targetPort), 5000)
-            proxySocket.tcpNoDelay = true
-            proxySocket.keepAlive = true
+            proxySock.connect(InetSocketAddress(targetHost, targetPort), 5000)
+            proxySock.tcpNoDelay = true
+            proxySock.keepAlive = true
+            proxySocket = proxySock
             logDiag("[TUNNEL] Connected to $targetHost:$targetPort. Starting $targetProtocol handshake for ${session.dstIp}:${session.dstPort}...")
 
-            val inStream = proxySocket.getInputStream()
-            val outStream = proxySocket.getOutputStream()
+            val inStream = proxySock.getInputStream()
+            val outStream = proxySock.getOutputStream()
+            session.proxyOutputStream = outStream
 
             // Perform proxy handshake
             val connected = if (targetProtocol.equals("HTTP", ignoreCase = true)) {
@@ -741,16 +759,25 @@ class ProxyVpnService : VpnService() {
      * ensuring 100% strict in-order packet delivery without TLS stream corruption.
      */
     private fun drainOutbound(session: TunnelSession) {
-        if (!session.proxyConnected.get() || session.isClosed.get()) return
-        if (!session.isDrainingOutbound.compareAndSet(false, true)) return
+        val qSize = session.outboundQueue.size
+        if (!session.proxyConnected.get()) {
+            logDiag("[DRAIN-SKIP] Not connected for ${session.connKey} (qSize=$qSize)")
+            return
+        }
+        if (session.isClosed.get()) return
+        if (!session.isDrainingOutbound.compareAndSet(false, true)) {
+            logDiag("[DRAIN-SKIP] Already draining for ${session.connKey} (qSize=$qSize)")
+            return
+        }
 
         workerExecutor?.execute {
             try {
                 val sock = session.proxySocket
                 if (sock == null || sock.isClosed || sock.isOutputShutdown) {
+                    logDiag("[DRAIN-ERR] Socket closed or null for ${session.connKey}")
                     return@execute
                 }
-                val out = sock.getOutputStream()
+                val out = session.proxyOutputStream ?: sock.getOutputStream()
                 while (!session.isClosed.get() && !sock.isClosed && !sock.isOutputShutdown) {
                     val chunk = session.outboundQueue.pollFirst() ?: break
                     synchronized(out) {
@@ -787,6 +814,43 @@ class ProxyVpnService : VpnService() {
 
             val txId0 = queryPayload[0]
             val txId1 = queryPayload[1]
+
+            // Inspect question QTYPE to fast-synthesize empty NOERROR responses for IPv6 (AAAA=28) and HTTPS/SVCB (65).
+            // This prevents Chrome and apps from stalling on IPv6 timeouts or trying HTTP/3 QUIC over IPv6.
+            var qnameIdx = 12
+            while (qnameIdx < queryPayload.size && queryPayload[qnameIdx] != 0.toByte()) {
+                val labelLen = queryPayload[qnameIdx].toInt() and 0xFF
+                qnameIdx += 1 + labelLen
+            }
+            if (qnameIdx < queryPayload.size && queryPayload[qnameIdx] == 0.toByte()) {
+                qnameIdx++ // Skip terminating 0-byte
+                if (qnameIdx + 1 < queryPayload.size) {
+                    val qtype = ((queryPayload[qnameIdx].toInt() and 0xFF) shl 8) or (queryPayload[qnameIdx + 1].toInt() and 0xFF)
+                    if (qtype == 28 || qtype == 65) {
+                        // Synthesize NOERROR with 0 answers (NODATA)
+                        val resp = queryPayload.clone()
+                        resp[2] = 0x81.toByte() // Response, Opcode=0, RD=1
+                        resp[3] = 0x80.toByte() // RA=1, RCODE=0 (NoError)
+                        resp[4] = 0x00.toByte() // QDCOUNT = 1
+                        resp[5] = 0x01.toByte()
+                        resp[6] = 0x00.toByte() // ANCOUNT = 0
+                        resp[7] = 0x00.toByte()
+                        resp[8] = 0x00.toByte() // NSCOUNT = 0
+                        resp[9] = 0x00.toByte()
+                        resp[10] = 0x00.toByte() // ARCOUNT = 0
+                        resp[11] = 0x00.toByte()
+
+                        sendUdpPacket(
+                            srcIp = dstIp,
+                            srcPort = dstPort,
+                            dstIp = clientIp,
+                            dstPort = clientPort,
+                            payload = resp
+                        )
+                        return
+                    }
+                }
+            }
 
             // Cache key based on query question (excluding txId bytes 0 and 1)
             val cacheKey = "${dstIp}_" + queryPayload.copyOfRange(2, queryPayload.size).contentHashCode()
@@ -842,8 +906,8 @@ class ProxyVpnService : VpnService() {
     ): ByteArray? {
         var proxySock: Socket? = null
         try {
-            val channel = SocketChannel.open()
-            proxySock = channel.socket()
+            proxySock = Socket()
+            proxySock.bind(null)
             proxySock.soTimeout = 4000
             val protectOk = protect(proxySock)
             if (!protectOk) {

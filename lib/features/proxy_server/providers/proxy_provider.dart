@@ -9,6 +9,11 @@ import '../../../core/services/proxy_server_service.dart';
 import '../../../core/services/reverse_proxy_service.dart';
 import '../../../core/services/vpn_diverter_service.dart';
 
+enum DiverterNetworkMode {
+  hotspot,
+  wifi,
+}
+
 class ProxyServerProvider extends ChangeNotifier {
   final ProxyServerService _service;
   final NetworkService _networkService;
@@ -225,6 +230,7 @@ class ProxyServerProvider extends ChangeNotifier {
     try {
       _systemIps = await _networkService.getAllSystemIps();
       _primaryIp = await _networkService.getPrimaryIp();
+      await refreshNetworkEnvironment();
     } catch (_) {}
     _isSearchingIps = false;
     notifyListeners();
@@ -509,7 +515,48 @@ class ProxyServerProvider extends ChangeNotifier {
     }
   }
 
-  // ── Traffic Diverter (Hotspot & Super Proxy Client) ──────────────────────
+  // ── Traffic Diverter (Hotspot & Wi-Fi Super Proxy Client) ────────────────
+  DiverterNetworkMode _diverterNetworkMode = DiverterNetworkMode.hotspot;
+  NetworkEnvironmentInfo _networkEnv = const NetworkEnvironmentInfo();
+
+  DiverterNetworkMode get diverterNetworkMode => _diverterNetworkMode;
+  NetworkEnvironmentInfo get networkEnv => _networkEnv;
+  bool get isWifiConnected => _networkEnv.isWifiConnected;
+  bool get isHotspotActive => _networkEnv.isHotspotActive;
+  String? get detectedWifiIp => _networkEnv.wifiIp;
+  String? get detectedWifiGateway => _networkEnv.wifiGateway;
+  String? get detectedHotspotGateway => _networkEnv.hotspotGateway;
+
+  Future<void> refreshNetworkEnvironment() async {
+    try {
+      _networkEnv = await _vpnDiverterService.getNetworkEnvironment();
+      // Auto-detect mode if Wi-Fi is connected and user hasn't explicitly set host
+      if (_networkEnv.isWifiConnected && !_networkEnv.isHotspotActive && _diverterHost == '192.168.43.1') {
+        if (_networkEnv.wifiGateway != null) {
+          _diverterNetworkMode = DiverterNetworkMode.wifi;
+          _diverterHost = _networkEnv.wifiGateway!;
+        }
+      }
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void setDiverterNetworkMode(DiverterNetworkMode mode) {
+    _diverterNetworkMode = mode;
+    if (!_vpnDiverterService.isRunning) {
+      if (mode == DiverterNetworkMode.wifi) {
+        if (_networkEnv.wifiGateway != null && (_diverterHost == '192.168.43.1' || _diverterHost.isEmpty)) {
+          _diverterHost = _networkEnv.wifiGateway!;
+        }
+      } else {
+        if (_diverterHost == _networkEnv.wifiGateway || _diverterHost.isEmpty) {
+          _diverterHost = _networkEnv.hotspotGateway ?? '192.168.43.1';
+        }
+      }
+    }
+    notifyListeners();
+  }
+
   bool get isDiverterRunning => _vpnDiverterService.isRunning;
   String get diverterHost => _diverterHost;
   int get diverterPort => _diverterPort;
@@ -688,7 +735,7 @@ class ProxyServerProvider extends ChangeNotifier {
     return result;
   }
 
-  /// Fast-scans the Hotspot subnet for Phone B running EveryProxy/SuperProxy.
+  /// Fast-scans the network (Wi-Fi or Hotspot) for Phone B running EveryProxy/SuperProxy.
   /// Discovers all matching IPs, streams them into [discoveredProxies] in real-time,
   /// and automatically selects / connects.
   Future<bool> autoDiscoverAndConnectHotspot({bool autoConnect = true}) async {
@@ -698,9 +745,14 @@ class ProxyServerProvider extends ChangeNotifier {
     notifyListeners();
 
     final String rememberedTarget = _diverterHost;
+    final String? preferredSubnet = _diverterNetworkMode == DiverterNetworkMode.wifi && _networkEnv.wifiGateway != null
+        ? _networkEnv.wifiGateway!.split('.').take(3).join('.')
+        : null;
+
     try {
-      CrashLogService().addBreadcrumb('TrafficDiverter', 'Initiating Hotspot subnet multi-IP auto-discovery');
-      final list = await _vpnDiverterService.discoverAllHotspotProxies(
+      CrashLogService().addBreadcrumb('TrafficDiverter', 'Initiating multi-network (${_diverterNetworkMode.name}) auto-discovery');
+      final list = await _vpnDiverterService.discoverAllProxies(
+        preferredSubnet: preferredSubnet,
         lastKnownHost: rememberedTarget,
         onFound: (proxy) {
           _discoveredProxies.add(proxy);
@@ -730,8 +782,10 @@ class ProxyServerProvider extends ChangeNotifier {
         }
         return true;
       } else {
-        _diverterError = 'No proxy server found on hotspot. Ensure EveryProxy is running on the other phone.';
-        CrashLogService().addBreadcrumb('TrafficDiverter', 'Auto-discovery finished: No proxy detected on subnet');
+        _diverterError = _diverterNetworkMode == DiverterNetworkMode.wifi
+            ? 'No proxy server found on local Wi-Fi. Ensure EveryProxy is running on the other device on the same Wi-Fi network.'
+            : 'No proxy server found on hotspot. Ensure EveryProxy is running on the other phone and connected to the hotspot.';
+        CrashLogService().addBreadcrumb('TrafficDiverter', 'Auto-discovery finished: No proxy detected on network');
       }
     } catch (e, stack) {
       _diverterError = 'Scan error: $e';

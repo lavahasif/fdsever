@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/power_service.dart';
@@ -16,10 +17,17 @@ class SettingsProvider extends ChangeNotifier {
   bool _keepScreenOn = false;
   bool _keepCpuAwake = false;
 
+  StreamSubscription? _batterySub;
+  StreamSubscription? _wakeLockSub;
+
   SettingsProvider(this._storageService, [this._powerService]) {
     _loadSettings();
-    _powerService?.batteryOptimizationStream.listen((_) => notifyListeners());
-    _powerService?.wakeLockStream.listen((_) => notifyListeners());
+    _batterySub = _powerService?.batteryOptimizationStream.listen((_) {
+      if (hasListeners) notifyListeners();
+    });
+    _wakeLockSub = _powerService?.wakeLockStream.listen((_) {
+      if (hasListeners) notifyListeners();
+    });
   }
 
   void _loadSettings() {
@@ -116,5 +124,12 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> refreshBatteryStatus() async {
     await _powerService?.checkBatteryOptimization();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _batterySub?.cancel();
+    _wakeLockSub?.cancel();
+    super.dispose();
   }
 }

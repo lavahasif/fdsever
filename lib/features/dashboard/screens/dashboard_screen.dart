@@ -73,13 +73,23 @@ class DashboardScreen extends StatelessWidget {
                   ),
                   _buildPillarCard(
                     context,
+                    title: 'Traffic Diverter',
+                    badge: proxyProvider.isDiverterRunning ? 'Active' : 'Offline',
+                    badgeColor: proxyProvider.isDiverterRunning ? const Color(0xFF10B981) : Colors.grey,
+                    description: 'Transparent VPN client diverter: route 100% of device traffic to SOCKS5/HTTP proxy.',
+                    icon: LucideIcons.route,
+                    accentColor: const Color(0xFF06B6D4),
+                    onTap: () => onNavigate(1, 1),
+                  ),
+                  _buildPillarCard(
+                    context,
                     title: 'Super Proxy',
                     badge: proxyProvider.isRunning ? ':${proxyProvider.port}' : 'Offline',
                     badgeColor: proxyProvider.isRunning ? const Color(0xFF10B981) : Colors.grey,
                     description: 'HTTP, HTTPS CONNECT & SOCKS5 gateway with ad-block shield.',
                     icon: LucideIcons.shieldCheck,
                     accentColor: const Color(0xFF10B981),
-                    onTap: () => onNavigate(1, 3),
+                    onTap: () => onNavigate(1, 2),
                   ),
                   _buildPillarCard(
                     context,
@@ -89,7 +99,7 @@ class DashboardScreen extends StatelessWidget {
                     description: 'Subnet device discovery, TCP port probing, and local network diagnostics.',
                     icon: LucideIcons.radar,
                     accentColor: const Color(0xFF8B5CF6),
-                    onTap: () => onNavigate(1, 1),
+                    onTap: () => onNavigate(1, 3),
                   ),
                   _buildPillarCard(
                     context,
@@ -129,14 +139,19 @@ class DashboardScreen extends StatelessWidget {
             runSpacing: 10,
             children: [
               _buildCompactToolButton(
+                icon: LucideIcons.route,
+                label: 'Traffic Diverter',
+                onPressed: () => onNavigate(1, 1),
+              ),
+              _buildCompactToolButton(
                 icon: LucideIcons.shieldCheck,
-                label: 'Proxy Gateway (${proxyProvider.isRunning ? 'Active' : 'Offline'})',
-                onPressed: () => onNavigate(1, 3),
+                label: 'Proxy Gateway',
+                onPressed: () => onNavigate(1, 2),
               ),
               _buildCompactToolButton(
                 icon: LucideIcons.radio,
                 label: 'WebSocket Hub',
-                onPressed: () => onNavigate(1, 2),
+                onPressed: () => onNavigate(1, 4),
               ),
               _buildCompactToolButton(
                 icon: LucideIcons.messageSquare,
@@ -145,12 +160,12 @@ class DashboardScreen extends StatelessWidget {
               ),
               _buildCompactToolButton(
                 icon: LucideIcons.notebookPen,
-                label: 'Notes & KB (${notesProvider.notes.length})',
+                label: 'Notes & KB',
                 onPressed: () => onNavigate(3, 0),
               ),
               _buildCompactToolButton(
                 icon: LucideIcons.bookOpen,
-                label: 'Tutorials (${tutsProvider.tutorials.length})',
+                label: 'Tutorials',
                 onPressed: () => onNavigate(3, 1),
               ),
               _buildCompactToolButton(
@@ -509,7 +524,13 @@ class DashboardScreen extends StatelessWidget {
         children: [
           Icon(icon, size: 14),
           const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

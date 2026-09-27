@@ -9,7 +9,9 @@ import '../../diagnostics/screens/crash_logs_screen.dart';
 import '../providers/proxy_provider.dart';
 
 class ProxyServerScreen extends StatefulWidget {
-  const ProxyServerScreen({super.key});
+  final int initialTabIndex;
+
+  const ProxyServerScreen({super.key, this.initialTabIndex = 0});
 
   @override
   State<ProxyServerScreen> createState() => _ProxyServerScreenState();
@@ -63,7 +65,11 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     _diverterHostController = TextEditingController(text: provider.diverterHost);
     _diverterPortController = TextEditingController(text: provider.diverterPort.toString());
     _searchController = TextEditingController(text: provider.searchQuery);
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(
+      length: 6,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, 5),
+    );
 
     _authUsernameController.text = provider.auth.username;
     _authPasswordController.text = provider.auth.password;
@@ -77,6 +83,14 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     WidgetsBinding.instance.addPostFrameCallback((_) {
       provider.checkRouteHealth();
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant ProxyServerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTabIndex != widget.initialTabIndex) {
+      _tabController.animateTo(widget.initialTabIndex.clamp(0, 5));
+    }
   }
 
   @override
@@ -2095,6 +2109,11 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
             ),
           ],
 
+          // Network Connection Mode (Hotspot vs Wi-Fi LAN)
+          _buildDiverterNetworkModeSelector(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+
+          const SizedBox(height: 18),
+
           // 1-Click Auto-Discovery Card
           _buildDiverterAutoDiscoveryCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
 
@@ -2125,8 +2144,217 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           const SizedBox(height: 18),
 
-          // Hotspot Step-by-Step Guide Card
-          _buildDiverterHotspotGuide(context, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+          // Step-by-Step Guide Card (Hotspot & Wi-Fi)
+          _buildDiverterHotspotGuide(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiverterNetworkModeSelector(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    final isWifi = proxy.diverterNetworkMode == DiverterNetworkMode.wifi;
+    final isHotspot = proxy.diverterNetworkMode == DiverterNetworkMode.hotspot;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(LucideIcons.router, size: 16, color: isDark ? const Color(0xFF818CF8) : const Color(0xFF4F46E5)),
+              const SizedBox(width: 8),
+              Text(
+                'Network Connection Mode',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: primaryTextColor,
+                ),
+              ),
+              const Spacer(),
+              if (proxy.isWifiConnected)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF10B981),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Wi-Fi: ${proxy.detectedWifiIp ?? 'Active'}',
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              // Mobile Hotspot Mode Button
+              Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    key: const Key('mode_hotspot_button'),
+                    onTap: proxy.isDiverterRunning
+                        ? null
+                        : () => proxy.setDiverterNetworkMode(DiverterNetworkMode.hotspot),
+                    borderRadius: BorderRadius.circular(10),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isHotspot
+                            ? (isDark ? const Color(0xFF312E81) : const Color(0xFFEEF2FF))
+                            : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isHotspot
+                              ? const Color(0xFF6366F1)
+                              : cardBorderColor,
+                          width: isHotspot ? 1.8 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            LucideIcons.radio,
+                            size: 18,
+                            color: isHotspot ? const Color(0xFF6366F1) : mutedTextColor,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Mobile Hotspot',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: isHotspot ? (isDark ? Colors.white : const Color(0xFF4338CA)) : primaryTextColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '192.168.43.x / iOS',
+                                  style: TextStyle(fontSize: 10.5, color: mutedTextColor),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isHotspot)
+                            const Icon(LucideIcons.checkCircle2, size: 16, color: Color(0xFF6366F1)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Wi-Fi LAN Mode Button
+              Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    key: const Key('mode_wifi_button'),
+                    onTap: proxy.isDiverterRunning
+                        ? null
+                        : () => proxy.setDiverterNetworkMode(DiverterNetworkMode.wifi),
+                    borderRadius: BorderRadius.circular(10),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isWifi
+                            ? (isDark ? const Color(0xFF064E3B) : const Color(0xFFECFDF5))
+                            : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isWifi
+                              ? const Color(0xFF10B981)
+                              : cardBorderColor,
+                          width: isWifi ? 1.8 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            LucideIcons.wifi,
+                            size: 18,
+                            color: isWifi ? const Color(0xFF10B981) : mutedTextColor,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Wi-Fi LAN',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: isWifi ? (isDark ? Colors.white : const Color(0xFF065F46)) : primaryTextColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  proxy.detectedWifiGateway != null
+                                      ? 'Router ${proxy.detectedWifiGateway}'
+                                      : 'Same Wi-Fi Network',
+                                  style: TextStyle(fontSize: 10.5, color: mutedTextColor),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isWifi)
+                            const Icon(LucideIcons.checkCircle2, size: 16, color: Color(0xFF10B981)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            isWifi
+                ? 'Routing through Phone B on your local Wi-Fi. Ensure Phone B is connected to the same Wi-Fi with EveryProxy active.'
+                : 'Routing through Phone B on mobile hotspot. Phone A is connected to Phone B\'s hotspot (gateway 192.168.43.1).',
+            style: TextStyle(fontSize: 11, color: mutedTextColor, fontStyle: FontStyle.italic),
+          ),
         ],
       ),
     );
@@ -2181,7 +2409,9 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Hotspot 1-Click Auto-Connect',
+                          proxy.diverterNetworkMode == DiverterNetworkMode.wifi
+                              ? 'Wi-Fi 1-Click Auto-Connect'
+                              : 'Hotspot 1-Click Auto-Connect',
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
@@ -2189,7 +2419,9 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                           ),
                         ),
                         Text(
-                          'Scans the hotspot subnet and locks onto Phone B running EveryProxy with zero typing.',
+                          proxy.diverterNetworkMode == DiverterNetworkMode.wifi
+                              ? 'Scans the local Wi-Fi subnet and locks onto Phone B running EveryProxy with zero typing.'
+                              : 'Scans the hotspot subnet and locks onto Phone B running EveryProxy with zero typing.',
                           style: TextStyle(fontSize: 12, color: mutedTextColor),
                         ),
                       ],
@@ -2208,7 +2440,9 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'Fast-scanning hotspot subnet for active proxies...',
+                      proxy.diverterNetworkMode == DiverterNetworkMode.wifi
+                          ? 'Fast-scanning Wi-Fi subnet for active proxies...'
+                          : 'Fast-scanning hotspot subnet for active proxies...',
                       style: TextStyle(fontSize: 12, color: mutedTextColor, fontStyle: FontStyle.italic),
                     ),
                   ],
@@ -2445,6 +2679,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
           );
 
           final button = ShadButton(
+            key: const Key('diverter_scan_button'),
             onPressed: (proxy.isDiverterRunning || proxy.isScanningProxy)
                 ? null
                 : () async {
@@ -2479,9 +2714,14 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 ] else ...[
                   const Icon(LucideIcons.zap, size: 16, color: Colors.white),
                   const SizedBox(width: 8),
-                  Text(
-                    proxy.discoveredProxies.isEmpty ? 'Scan & Auto-Connect' : 'Rescan Hotspot',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  Flexible(
+                    child: Text(
+                      proxy.discoveredProxies.isEmpty
+                          ? 'Scan & Auto-Connect'
+                          : (proxy.diverterNetworkMode == DiverterNetworkMode.wifi ? 'Rescan Wi-Fi' : 'Rescan Hotspot'),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ],
@@ -2490,7 +2730,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           if (isCompact) {
             return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 content,
                 const SizedBox(height: 12),
@@ -2578,17 +2818,20 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        !isVpnEnabled
-                            ? 'WI-FI PROXY MODE (VPN OFF)'
-                            : (isRunning ? 'VPN TUNNEL ACTIVE' : 'DIVERTER STOPPED'),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                          color: !isVpnEnabled
-                              ? Colors.amber
-                              : (isRunning ? const Color(0xFF10B981) : mutedTextColor),
+                      Flexible(
+                        child: Text(
+                          !isVpnEnabled
+                              ? 'WI-FI PROXY MODE (VPN OFF)'
+                              : (isRunning ? 'VPN TUNNEL ACTIVE' : 'DIVERTER STOPPED'),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                            color: !isVpnEnabled
+                                ? Colors.amber
+                                : (isRunning ? const Color(0xFF10B981) : mutedTextColor),
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -2644,6 +2887,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           final actionButton = isRunning
               ? ShadButton.destructive(
+                  key: const Key('diverter_stop_button'),
                   size: ShadButtonSize.lg,
                   onPressed: proxy.isDiverterLoading
                       ? null
@@ -2693,6 +2937,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                       ),
                     )
                   : ShadButton(
+                      key: const Key('diverter_start_button'),
                       size: ShadButtonSize.lg,
                       onPressed: proxy.isDiverterLoading
                           ? null
@@ -2905,9 +3150,11 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
             children: [
               const Icon(LucideIcons.slidersHorizontal, size: 18),
               const SizedBox(width: 8),
-              Text(
-                'Target Proxy Configuration',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryTextColor),
+              Expanded(
+                child: Text(
+                  'Target Proxy Configuration',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryTextColor),
+                ),
               ),
             ],
           ),
@@ -2987,6 +3234,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 ),
                 const SizedBox(width: 8),
                 Switch(
+                  key: const Key('diverter_vpn_switch'),
                   value: proxy.diverterUseVpn,
                   onChanged: proxy.isDiverterRunning
                       ? null
@@ -3011,6 +3259,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   Text('Target IP / Host', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: primaryTextColor)),
                   const SizedBox(height: 6),
                   ShadInput(
+                    key: const Key('diverter_host_input'),
                     controller: _diverterHostController,
                     enabled: !proxy.isDiverterRunning,
                     placeholder: const Text('192.168.43.1'),
@@ -3025,6 +3274,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   Text('Target Port', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: primaryTextColor)),
                   const SizedBox(height: 6),
                   ShadInput(
+                    key: const Key('diverter_port_input'),
                     controller: _diverterPortController,
                     enabled: !proxy.isDiverterRunning,
                     placeholder: const Text('1080'),
@@ -3069,6 +3319,15 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               spacing: 8,
               runSpacing: 8,
               children: [
+                if (proxy.diverterNetworkMode == DiverterNetworkMode.wifi && proxy.detectedWifiGateway != null)
+                  _buildQuickChip(
+                    label: 'Wi-Fi Gateway (${proxy.detectedWifiGateway})',
+                    onTap: () {
+                      _diverterHostController.text = proxy.detectedWifiGateway!;
+                      proxy.setDiverterHost(proxy.detectedWifiGateway!);
+                    },
+                    isSelected: proxy.diverterHost == proxy.detectedWifiGateway,
+                  ),
                 _buildQuickChip(
                   label: 'Hotspot Gateway (192.168.43.1)',
                   onTap: () {
@@ -3076,6 +3335,14 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     proxy.setDiverterHost('192.168.43.1');
                   },
                   isSelected: proxy.diverterHost == '192.168.43.1',
+                ),
+                _buildQuickChip(
+                  label: 'iPhone Hotspot (172.20.10.1)',
+                  onTap: () {
+                    _diverterHostController.text = '172.20.10.1';
+                    proxy.setDiverterHost('172.20.10.1');
+                  },
+                  isSelected: proxy.diverterHost == '172.20.10.1',
                 ),
                 _buildQuickChip(
                   label: 'SOCKS5 (1080)',
@@ -3222,7 +3489,9 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     Text('Bypass Local LAN Traffic', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: primaryTextColor)),
                     const SizedBox(height: 2),
                     Text(
-                      'Keep private networks (192.168.x.x, 10.x.x.x) direct so local routers and printers remain accessible.',
+                      proxy.diverterNetworkMode == DiverterNetworkMode.wifi
+                          ? 'Keep local Wi-Fi router & devices (printers, local servers) direct while diverting all internet traffic.'
+                          : 'Keep private networks (192.168.x.x, 10.x.x.x) direct so local routers and printers remain accessible.',
                       style: TextStyle(fontSize: 11, color: mutedTextColor),
                     ),
                   ],
@@ -3364,9 +3633,12 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('Proxy Host: ', style: TextStyle(fontSize: 12, color: mutedTextColor)),
-                    Text(
-                      proxy.diverterHost,
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryTextColor),
+                    Flexible(
+                      child: Text(
+                        proxy.diverterHost,
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryTextColor),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     InkWell(
@@ -3477,12 +3749,15 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
   Widget _buildDiverterHotspotGuide(
     BuildContext context,
+    ProxyServerProvider proxy,
     bool isDark,
     Color primaryTextColor,
     Color mutedTextColor,
     Color cardBgColor,
     Color cardBorderColor,
   ) {
+    final isWifi = proxy.diverterNetworkMode == DiverterNetworkMode.wifi;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -3496,19 +3771,23 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
         children: [
           Row(
             children: [
-              const Icon(LucideIcons.helpCircle, size: 18),
+              Icon(isWifi ? LucideIcons.wifi : LucideIcons.helpCircle, size: 18, color: isWifi ? const Color(0xFF10B981) : const Color(0xFF6366F1)),
               const SizedBox(width: 8),
-              Text(
-                'How Hotspot Proxy Diversion Works',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryTextColor),
+              Expanded(
+                child: Text(
+                  isWifi ? 'How Wi-Fi Proxy Diversion Works' : 'How Hotspot Proxy Diversion Works',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryTextColor),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           _buildGuideStep(
             step: '1',
-            title: 'Turn on Mobile Hotspot',
-            description: 'Turn on Hotspot on Phone A. Connect Phone B to this Hotspot Wi-Fi network.',
+            title: isWifi ? 'Connect to the Same Wi-Fi' : 'Turn on Mobile Hotspot',
+            description: isWifi
+                ? 'Ensure both Phone A and Phone B are connected to the same Wi-Fi router / office network.'
+                : 'Turn on Hotspot on Phone A. Connect Phone B to this Hotspot Wi-Fi network (or vice versa).',
             primaryTextColor: primaryTextColor,
             mutedTextColor: mutedTextColor,
           ),
@@ -3516,15 +3795,19 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
           _buildGuideStep(
             step: '2',
             title: 'Open EveryProxy on Connected Phone',
-            description: 'On Phone B, start EveryProxy with SOCKS5 (port 1080) or HTTP (port 8080).',
+            description: isWifi
+                ? 'On Phone B, start EveryProxy with SOCKS5 (port 1080) or HTTP (port 8080). EveryProxy will display Phone B\'s local Wi-Fi IP.'
+                : 'On Phone B, start EveryProxy with SOCKS5 (port 1080) or HTTP (port 8080).',
             primaryTextColor: primaryTextColor,
             mutedTextColor: mutedTextColor,
           ),
           const SizedBox(height: 10),
           _buildGuideStep(
             step: '3',
-            title: 'Route Apps via Super Proxy (or Wi-Fi Proxy)',
-            description: 'Use the "Test Connection" button above to verify Phone B is responding. Then open Super Proxy on this phone (or Wi-Fi Settings) with Phone B\'s IP and Port to route all apps seamlessly!',
+            title: isWifi ? 'Auto-Discover & Divert Traffic' : 'Route Apps via Diverter Tunnel',
+            description: isWifi
+                ? 'Tap "Scan Wi-Fi" to automatically locate Phone B or enter its Wi-Fi IP in Target Host, then tap "Start Diverting" to route 100% of all apps through Phone B!'
+                : 'Use "Scan & Auto-Connect" to lock onto Phone B (gateway 192.168.43.1). Tap "Start Diverting" to route all apps through Phone B seamlessly!',
             primaryTextColor: primaryTextColor,
             mutedTextColor: mutedTextColor,
           ),
@@ -3604,9 +3887,12 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 children: [
                   const Icon(LucideIcons.terminal, size: 18, color: Color(0xFF10B981)),
                   const SizedBox(width: 8),
-                  Text(
-                    'Diverter Diagnostics & Logs',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryTextColor),
+                  Flexible(
+                    child: Text(
+                      'Diverter Diagnostics & Logs',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryTextColor),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Container(

@@ -186,16 +186,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               size: 18,
                             ),
                             const SizedBox(width: 8),
-                            Text(
-                              settingsProvider.isIgnoringBattery
-                                  ? 'Battery Optimization: Unrestricted'
-                                  : 'Battery Optimization: Restricted (Active)',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: settingsProvider.isIgnoringBattery
-                                    ? const Color(0xFF10B981)
-                                    : const Color(0xFFF59E0B),
+                            Expanded(
+                              child: Text(
+                                settingsProvider.isIgnoringBattery
+                                    ? 'Battery Optimization: Unrestricted'
+                                    : 'Battery Optimization: Restricted (Active)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: settingsProvider.isIgnoringBattery
+                                      ? const Color(0xFF10B981)
+                                      : const Color(0xFFF59E0B),
+                                ),
                               ),
                             ),
                           ],
@@ -283,13 +285,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 8,
+                              runSpacing: 4,
                               children: [
                                 const Text(
                                   'Continuous CPU Wake Lock',
                                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                                 ),
-                                const SizedBox(width: 8),
                                 if (settingsProvider.isWakeLockHeld)
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

@@ -180,9 +180,12 @@ class _NotesScreenState extends State<NotesScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text(
-                          'Notes & Knowledge Base',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.3),
+                        const Flexible(
+                          child: Text(
+                            'Notes & Knowledge Base',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: -0.3),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         Container(

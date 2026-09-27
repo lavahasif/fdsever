@@ -41,6 +41,26 @@ class VpnStatus {
   });
 }
 
+class NetworkEnvironmentInfo {
+  final bool isWifiConnected;
+  final bool isHotspotActive;
+  final String? wifiIp;
+  final String? wifiGateway;
+  final String? hotspotIp;
+  final String? hotspotGateway;
+  final List<String> activeSubnets;
+
+  const NetworkEnvironmentInfo({
+    this.isWifiConnected = false,
+    this.isHotspotActive = false,
+    this.wifiIp,
+    this.wifiGateway,
+    this.hotspotIp,
+    this.hotspotGateway,
+    this.activeSubnets = const [],
+  });
+}
+
 /// Service managing device-wide transparent proxy diversion via Android VpnService
 class VpnDiverterService {
   static const MethodChannel _channel = MethodChannel('fdserver/vpn');
@@ -221,10 +241,72 @@ class VpnDiverterService {
     } catch (_) {}
   }
 
-  /// Fast-scans local subnets for open proxy ports (SOCKS5 1080 and HTTP 8080).
+  /// Inspects system network interfaces to detect active Wi-Fi and Hotspot connections.
+  Future<NetworkEnvironmentInfo> getNetworkEnvironment() async {
+    bool wifiConnected = false;
+    bool hotspotActive = false;
+    String? wifiIp;
+    String? wifiGateway;
+    String? hotspotIp;
+    String? hotspotGateway;
+    final activeSubnets = <String>{};
+
+    try {
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+        for (final addr in iface.addresses) {
+          final ip = addr.address;
+          if (ip.startsWith('127.')) continue;
+          final parts = ip.split('.');
+          if (parts.length == 4) {
+            final subnet = '${parts[0]}.${parts[1]}.${parts[2]}';
+            activeSubnets.add(subnet);
+
+            if (name.contains('ap') || name.contains('swlan') || subnet == '192.168.43') {
+              hotspotActive = true;
+              hotspotIp = ip;
+              hotspotGateway = '$subnet.1';
+            } else if (name.startsWith('wlan') || name.startsWith('eth') || name.startsWith('en')) {
+              wifiConnected = true;
+              wifiIp = ip;
+              wifiGateway = '$subnet.1';
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return NetworkEnvironmentInfo(
+      isWifiConnected: wifiConnected,
+      isHotspotActive: hotspotActive,
+      wifiIp: wifiIp,
+      wifiGateway: wifiGateway,
+      hotspotIp: hotspotIp,
+      hotspotGateway: hotspotGateway ?? '192.168.43.1',
+      activeSubnets: activeSubnets.toList(),
+    );
+  }
+
+  /// Fast-scans both Wi-Fi and Hotspot subnets for open proxy ports (SOCKS5 1080 and HTTP 8080).
   /// Discovers ALL available proxies on the network and triggers [onFound]
   /// the instant each proxy responds so the UI can display chips in real-time!
   Future<List<DiscoveredProxy>> discoverAllHotspotProxies({
+    String? preferredSubnet,
+    String? lastKnownHost,
+    List<int> ports = const [1080, 8080],
+    void Function(DiscoveredProxy proxy)? onFound,
+  }) async {
+    return discoverAllProxies(
+      preferredSubnet: preferredSubnet,
+      lastKnownHost: lastKnownHost,
+      ports: ports,
+      onFound: onFound,
+    );
+  }
+
+  /// Comprehensive multi-network proxy discovery covering both Hotspot and Wi-Fi subnets.
+  Future<List<DiscoveredProxy>> discoverAllProxies({
     String? preferredSubnet,
     String? lastKnownHost,
     List<int> ports = const [1080, 8080],
@@ -234,16 +316,23 @@ class VpnDiverterService {
     if (preferredSubnet != null && preferredSubnet.isNotEmpty) {
       subnetsToScan.add(preferredSubnet);
     }
-    // Default Android Hotspot subnet is universally 192.168.43.x
+    // Default Android Hotspot subnet
     subnetsToScan.add('192.168.43');
+    // Default iOS Hotspot subnet
+    subnetsToScan.add('172.20.10');
 
-    // Also look up active network interfaces
+    final deviceIps = <String>{};
+
+    // Also look up active network interfaces (Wi-Fi, Ethernet, Hotspot AP)
     try {
       final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
       for (final iface in interfaces) {
         for (final addr in iface.addresses) {
-          final parts = addr.address.split('.');
-          if (parts.length == 4 && !addr.address.startsWith('127.')) {
+          final ip = addr.address;
+          if (ip.startsWith('127.')) continue;
+          deviceIps.add(ip);
+          final parts = ip.split('.');
+          if (parts.length == 4) {
             subnetsToScan.add('${parts[0]}.${parts[1]}.${parts[2]}');
           }
         }
@@ -261,14 +350,35 @@ class VpnDiverterService {
       }
     }
 
-    // ── PHASE 1: Priority Fast-Track (< 100ms) ────────────────────────────────
-    // Check known target host, Android hotspot gateway (192.168.43.1), and ARP table neighbors FIRST!
+    // ── PHASE 1: Priority Fast-Track (< 150ms) ────────────────────────────────
+    // Check known target host, Hotspot gateways, Wi-Fi router gateways, and ARP neighbors FIRST!
     final priorityIps = <String>{};
     if (lastKnownHost != null && lastKnownHost.trim().isNotEmpty && !lastKnownHost.startsWith('127.')) {
       priorityIps.add(lastKnownHost.trim());
     }
-    // Android standard hotspot gateway is universally 192.168.43.1
+    // Universal hotspot gateways
     priorityIps.add('192.168.43.1');
+    priorityIps.add('172.20.10.1');
+
+    // Add each active subnet's default gateway (.1) and (.254)
+    for (final subnet in subnetsToScan) {
+      priorityIps.add('$subnet.1');
+      priorityIps.add('$subnet.2');
+      priorityIps.add('$subnet.254');
+    }
+
+    // Add immediate neighbors around current device IP(s)
+    for (final devIp in deviceIps) {
+      final parts = devIp.split('.');
+      if (parts.length == 4) {
+        final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+        final hostNum = int.tryParse(parts[3]) ?? 0;
+        if (hostNum > 2) priorityIps.add('$prefix.${hostNum - 1}');
+        if (hostNum < 254) priorityIps.add('$prefix.${hostNum + 1}');
+        priorityIps.add('$prefix.100');
+        priorityIps.add('$prefix.101');
+      }
+    }
 
     // Read ARP cache for active neighbor devices (/proc/net/arp)
     try {
@@ -297,8 +407,7 @@ class VpnDiverterService {
     await Future.wait(priorityFutures);
 
     // ── PHASE 2: Parallel Subnet Sweep ───────────────────────────────────────
-    // Probe common DHCP range (.2 to .50) first, then remaining (.51 to .254)
-    // with 64 concurrent socket connections
+    // Sweep remaining hosts across Wi-Fi & Hotspot subnets
     final remainingIps = <String>[];
     for (final subnet in subnetsToScan) {
       for (int i = 2; i <= 50; i++) {
@@ -318,7 +427,7 @@ class VpnDiverterService {
       for (final ip in batch) {
         for (final port in ports) {
           batchFutures.add(() async {
-            final res = await _probeProxy(ip, port, timeoutMs: 400);
+            final res = await _probeProxy(ip, port, timeoutMs: 350);
             if (res != null) {
               handleFound(res);
             }

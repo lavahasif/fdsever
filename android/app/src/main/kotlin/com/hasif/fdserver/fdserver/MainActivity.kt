@@ -23,9 +23,65 @@ class MainActivity : FlutterActivity() {
     private val CRASH_CHANNEL = "fdserver/crash_logs"
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
+    // Store pending start arguments when VPN permission is not yet granted
+    private var pendingVpnStartArgs: Map<String, Any>? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var isScreenKeepOn: Boolean = false
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } catch (_: Throwable) {}
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.getStringExtra("action") ?: intent.action
+        if (action == "start_vpn" || action == "com.hasif.fdserver.START_VPN") {
+            val host = intent.getStringExtra("host") ?: "10.225.138.58"
+            val port = intent.getIntExtra("port", 1080)
+            val protocol = intent.getStringExtra("protocol") ?: "SOCKS5"
+            val bypassLan = intent.getBooleanExtra("bypassLan", true)
+
+            val vpnPrepareIntent = VpnService.prepare(this)
+            if (vpnPrepareIntent != null) {
+                pendingVpnStartArgs = mapOf(
+                    "host" to host,
+                    "port" to port,
+                    "protocol" to protocol,
+                    "bypassLan" to bypassLan
+                )
+                startActivityForResult(vpnPrepareIntent, VPN_REQUEST_CODE)
+            } else {
+                startVpnService(host, port, protocol, bypassLan)
+            }
+        } else if (action == "stop_vpn" || action == "com.hasif.fdserver.STOP_VPN") {
+            val stopIntent = Intent(this, ProxyVpnService::class.java).apply {
+                this.action = ProxyVpnService.ACTION_STOP
+            }
+            startService(stopIntent)
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -273,25 +329,21 @@ class MainActivity : FlutterActivity() {
                         val protocol = call.argument<String>("protocol") ?: "SOCKS5"
                         val bypassLan = call.argument<Boolean>("bypassLan") ?: true
 
-                        val intent = Intent(this, ProxyVpnService::class.java).apply {
-                            action = ProxyVpnService.ACTION_START
-                            putExtra(ProxyVpnService.EXTRA_HOST, host)
-                            putExtra(ProxyVpnService.EXTRA_PORT, port)
-                            putExtra(ProxyVpnService.EXTRA_PROTOCOL, protocol)
-                            putExtra(ProxyVpnService.EXTRA_BYPASS_LAN, bypassLan)
+                        // Check VPN permission
+                        val intent = VpnService.prepare(this)
+                        if (intent != null) {
+                            pendingVpnStartArgs = mapOf(
+                                "host" to host,
+                                "port" to port,
+                                "protocol" to protocol,
+                                "bypassLan" to bypassLan
+                            )
+                            vpnPendingResult = result
+                            startActivityForResult(intent, VPN_REQUEST_CODE)
+                            return@setMethodCallHandler
                         }
 
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            try {
-                                startForegroundService(intent)
-                            } catch (eForeground: Throwable) {
-                                // Fallback for OEM battery restrictions or background launch blocks
-                                CrashRecorder.record(this, "START_FOREGROUND_FALLBACK", "MainActivity", eForeground)
-                                startService(intent)
-                            }
-                        } else {
-                            startService(intent)
-                        }
+                        startVpnService(host, port, protocol, bypassLan)
                         result.success(true)
                     } catch (e: Throwable) {
                         CrashRecorder.record(this, "VPN_START_ERROR", "MainActivity", e)
@@ -343,8 +395,44 @@ class MainActivity : FlutterActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == VPN_REQUEST_CODE) {
-            vpnPendingResult?.success(resultCode == RESULT_OK)
+            // If we launched a permission request for startVpn, handle pending args
+            if (resultCode == RESULT_OK) {
+                val args = pendingVpnStartArgs
+                if (args != null) {
+                    val host = args["host"] as String
+                    val port = args["port"] as Int
+                    val protocol = args["protocol"] as String
+                    val bypassLan = args["bypassLan"] as Boolean
+                    startVpnService(host, port, protocol, bypassLan)
+                    vpnPendingResult?.success(true)
+                    pendingVpnStartArgs = null
+                } else {
+                    vpnPendingResult?.success(true)
+                }
+            } else {
+                vpnPendingResult?.success(false)
+            }
             vpnPendingResult = null
+        }
+    }
+
+    private fun startVpnService(host: String, port: Int, protocol: String, bypassLan: Boolean) {
+        val intent = Intent(this, ProxyVpnService::class.java).apply {
+            action = ProxyVpnService.ACTION_START
+            putExtra(ProxyVpnService.EXTRA_HOST, host)
+            putExtra(ProxyVpnService.EXTRA_PORT, port)
+            putExtra(ProxyVpnService.EXTRA_PROTOCOL, protocol)
+            putExtra(ProxyVpnService.EXTRA_BYPASS_LAN, bypassLan)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                startForegroundService(intent)
+            } catch (eForeground: Throwable) {
+                CrashRecorder.record(this, "START_FOREGROUND_FALLBACK", "MainActivity", eForeground)
+                startService(intent)
+            }
+        } else {
+            startService(intent)
         }
     }
 
