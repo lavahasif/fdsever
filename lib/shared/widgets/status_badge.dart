@@ -31,7 +31,14 @@ class StatusBadge extends StatelessWidget {
                 shape: BoxShape.circle,
               ),
             ),
-            Text(activeLabel, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+            Flexible(
+              child: Text(
+                activeLabel,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
           ],
         ),
       );
@@ -50,7 +57,14 @@ class StatusBadge extends StatelessWidget {
               shape: BoxShape.circle,
             ),
           ),
-          Text(inactiveLabel, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+          Flexible(
+            child: Text(
+              inactiveLabel,
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+          ),
         ],
       ),
     );

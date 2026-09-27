@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import '../../../core/services/crash_log_service.dart';
+import '../../diagnostics/screens/crash_logs_screen.dart';
 import '../providers/settings_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -360,6 +363,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
+          ),
+
+          const SizedBox(height: 22),
+
+          // Crash Logs & AI Diagnostics Card
+          ListenableBuilder(
+            listenable: CrashLogService(),
+            builder: (context, _) {
+              final crashService = CrashLogService();
+              final count = crashService.logs.length;
+
+              return ShadCard(
+                title: Row(
+                  children: [
+                    const Icon(LucideIcons.fileWarning, size: 18, color: Color(0xFFEF4444)),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'App Diagnostics & Crash Logs',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (count > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withAlpha(30),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red.withAlpha(60)),
+                        ),
+                        child: Text(
+                          '$count Recorded',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                description: const Text(
+                  'Records any crash, exception, or platform failure with full stack traces and activity breadcrumbs ready to copy into AI for instant diagnosis.',
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                                );
+                              },
+                              icon: const Icon(LucideIcons.eye, size: 16),
+                              label: Text('Open Crash Viewer ($count)'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF4F46E5),
+                              ),
+                              onPressed: () {
+                                final prompt = crashService.generateFullDiagnosticsAiPrompt();
+                                Clipboard.setData(ClipboardData(text: prompt));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                                    backgroundColor: Color(0xFF18181B),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              },
+                              icon: const Icon(LucideIcons.copy, size: 16),
+                              label: const Text('Copy for AI'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
 
           const SizedBox(height: 22),

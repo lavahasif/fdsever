@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../../core/models/proxy_models.dart';
+import '../../../core/services/crash_log_service.dart';
 import '../../../shared/widgets/status_badge.dart';
+import '../../diagnostics/screens/crash_logs_screen.dart';
 import '../providers/proxy_provider.dart';
 
 class ProxyServerScreen extends StatefulWidget {
@@ -168,20 +170,23 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
       body: Column(
         children: [
           // Sub-navigation tab bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF18181B) : const Color(0xFFFAFAFA),
-              border: Border(
-                bottom: BorderSide(
-                  color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 540;
+              return Container(
+                padding: EdgeInsets.symmetric(horizontal: isCompact ? 12 : 20, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF18181B) : const Color(0xFFFAFAFA),
+                  border: Border(
+                    bottom: BorderSide(
+                      color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TabBar(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TabBar(
                     controller: _tabController,
                     isScrollable: true,
                     tabAlignment: TabAlignment.start,
@@ -328,14 +333,48 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     ],
                   ),
                 ),
-                StatusBadge(
-                  isActive: isAnyActive,
-                  activeLabel: activeLabel,
-                  inactiveLabel: 'PROXIES STOPPED',
-                ),
-              ],
-            ),
-          ),
+                        if (!isCompact)
+                          StatusBadge(
+                            isActive: isAnyActive,
+                            activeLabel: activeLabel,
+                            inactiveLabel: 'PROXIES STOPPED',
+                          )
+                        else
+                          Container(
+                            margin: const EdgeInsets.only(left: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: (isAnyActive ? const Color(0xFF10B981) : Colors.grey).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: isAnyActive ? const Color(0xFF10B981) : Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  isAnyActive ? 'ON' : 'OFF',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: isAnyActive ? const Color(0xFF10B981) : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
 
           // Main Tabs Content
           Expanded(
@@ -391,12 +430,64 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           const SizedBox(height: 16),
 
-          // Error Alert
+          // Error Alert with 1-Tap Copy for AI
           if (proxy.errorMessage != null) ...[
-            ShadAlert.destructive(
-              icon: const Icon(LucideIcons.triangleAlert, size: 16),
-              title: const Text('Proxy Server Error'),
-              description: Text(proxy.errorMessage!),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withAlpha(20),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withAlpha(60)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Forward Proxy Server Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
+                      const Spacer(),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F46E5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
+                          Clipboard.setData(ClipboardData(text: prompt));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                              backgroundColor: Color(0xFF18181B),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                        icon: const Icon(LucideIcons.copy, size: 12),
+                        label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                          );
+                        },
+                        child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(proxy.errorMessage!, style: const TextStyle(fontSize: 12, color: Colors.redAccent)),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
           ],
@@ -505,13 +596,15 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         Text(
                           proxy.isRunning ? 'Forward Proxy is Active & Forwarding' : 'Forward Proxy is Offline',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
@@ -622,13 +715,14 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     return LayoutBuilder(
       builder: (context, constraints) {
         final crossAxisCount = constraints.maxWidth > 900 ? 5 : (constraints.maxWidth > 550 ? 3 : 2);
+        final childAspectRatio = constraints.maxWidth < 550 ? 1.45 : (constraints.maxWidth < 900 ? 1.6 : 1.8);
         return GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: crossAxisCount,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.8,
+          childAspectRatio: childAspectRatio,
           children: [
             _buildMetricTile(
               title: 'Total Requests',
@@ -739,10 +833,15 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
         children: [
           const Icon(LucideIcons.network, size: 18),
           const SizedBox(width: 8),
-          Text('Automatic IP Discovery & Binding (${proxy.systemIps.length} interfaces)'),
-          const Spacer(),
+          Expanded(
+            child: Text(
+              'Automatic IP Discovery & Binding (${proxy.systemIps.length} interfaces)',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           ShadButton.ghost(
             size: ShadButtonSize.sm,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             onPressed: proxy.isSearchingIps ? null : () => proxy.searchSystemIps(),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -754,7 +853,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  proxy.isSearchingIps ? 'Scanning...' : 'Refresh Interfaces',
+                  proxy.isSearchingIps ? 'Scanning...' : 'Refresh',
                   style: const TextStyle(fontSize: 12),
                 ),
               ],
@@ -1081,6 +1180,68 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
             const SizedBox(height: 16),
           ],
 
+          // Reverse Proxy Error Alert
+          if (proxy.reverseProxyError != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withAlpha(20),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withAlpha(60)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Reverse Proxy Gateway Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
+                      const Spacer(),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F46E5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
+                          Clipboard.setData(ClipboardData(text: prompt));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                              backgroundColor: Color(0xFF18181B),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                        icon: const Icon(LucideIcons.copy, size: 12),
+                        label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                          );
+                        },
+                        child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(proxy.reverseProxyError!, style: const TextStyle(fontSize: 12, color: Colors.redAccent)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // Reverse Proxy Hero Card
           _buildReverseHeroCard(context, proxy, isDark),
 
@@ -1144,13 +1305,15 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         Text(
                           proxy.isReverseProxyRunning ? 'Reverse Gateway is Live' : 'Reverse Proxy is Stopped',
                           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
@@ -1254,7 +1417,12 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
         children: [
           const Icon(LucideIcons.route, size: 18),
           const SizedBox(width: 8),
-          Text('Configured Backend Routes (${proxy.reverseProxyRoutes.length})'),
+          Expanded(
+            child: Text(
+              'Configured Backend Routes (${proxy.reverseProxyRoutes.length})',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
       description: const Text(
@@ -1439,11 +1607,16 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
   Widget _buildReverseIpCard(BuildContext context, ProxyServerProvider proxy, bool isDark) {
     return ShadCard(
-      title: Row(
+      title: const Row(
         children: [
-          const Icon(LucideIcons.slidersHorizontal, size: 18),
-          const SizedBox(width: 8),
-          const Text('Reverse Proxy Network & Port Binding'),
+          Icon(LucideIcons.slidersHorizontal, size: 18),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Reverse Proxy Network & Port Binding',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
       description: const Text(
@@ -1798,14 +1971,128 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           const SizedBox(height: 16),
 
-          // Error Alert
+          // Error Alert with 1-Tap Copy for AI
           if (proxy.diverterError != null) ...[
-            ShadAlert.destructive(
-              icon: const Icon(LucideIcons.triangleAlert, size: 16),
-              title: const Text('Diverter Error'),
-              description: Text(proxy.diverterError!),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withAlpha(20),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withAlpha(60)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
+                      const SizedBox(width: 8),
+                      const Text('Traffic Diverter Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
+                      const Spacer(),
+                      FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF4F46E5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
+                          Clipboard.setData(ClipboardData(text: prompt));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                              backgroundColor: Color(0xFF18181B),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                        icon: const Icon(LucideIcons.copy, size: 12),
+                        label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                      ),
+                      const SizedBox(width: 6),
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                          );
+                        },
+                        child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(proxy.diverterError!, style: const TextStyle(fontSize: 12, color: Colors.redAccent)),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
+          ],
+
+          if (proxy.isDiverterRunning) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFEF4444), width: 1.5),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(LucideIcons.shieldAlert, color: Color(0xFFEF4444), size: 22),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Traffic Diverter is Currently Active',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFFEF4444)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Tunneling to ${proxy.diverterHost}:${proxy.diverterPort}',
+                          style: TextStyle(fontSize: 12, color: primaryTextColor),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ShadButton.destructive(
+                    size: ShadButtonSize.sm,
+                    onPressed: proxy.isDiverterLoading ? null : () => proxy.toggleDiverter(),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (proxy.isDiverterLoading)
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        else
+                          const Icon(LucideIcons.square, size: 14),
+                        const SizedBox(width: 6),
+                        const Text('STOP NOW', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
 
           // 1-Click Auto-Discovery Card
@@ -1818,13 +2105,23 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           const SizedBox(height: 18),
 
-          // Live Metrics Counters
-          _buildDiverterMetrics(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
-
-          const SizedBox(height: 18),
+          if (!proxy.diverterUseVpn) ...[
+            // Direct Wi-Fi Proxy Card (when VPN is off)
+            _buildDiverterWifiProxyCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+            const SizedBox(height: 18),
+          ] else ...[
+            // Live Metrics Counters (when VPN is on)
+            _buildDiverterMetrics(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+            const SizedBox(height: 18),
+          ],
 
           // Target Proxy Configuration Card
           _buildDiverterConfigCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
+
+          const SizedBox(height: 18),
+
+          // Live Diagnostics & Event Logs Card
+          _buildDiverterDiagnosticsCard(context, proxy, isDark, primaryTextColor, mutedTextColor, cardBgColor, cardBorderColor),
 
           const SizedBox(height: 18),
 
@@ -1900,25 +2197,247 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                   ),
                 ],
               ),
-              if (proxy.lastDiscoveredProxy != null) ...[
+              if (proxy.isScanningProxy && proxy.discoveredProxies.isEmpty) ...[
                 const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(LucideIcons.checkCheck, color: Color(0xFF10B981), size: 14),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Found Phone B: ${proxy.lastDiscoveredProxy!.ip}:${proxy.lastDiscoveredProxy!.port} (${proxy.lastDiscoveredProxy!.protocol} · ${proxy.lastDiscoveredProxy!.latencyMs}ms)',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                Row(
+                  children: [
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Fast-scanning hotspot subnet for active proxies...',
+                      style: TextStyle(fontSize: 12, color: mutedTextColor, fontStyle: FontStyle.italic),
+                    ),
+                  ],
+                ),
+              ],
+              if (proxy.discoveredProxies.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(LucideIcons.listFilter, size: 13, color: mutedTextColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      proxy.discoveredProxies.length == 1
+                          ? 'Found Proxy Device (Tap to connect):'
+                          : 'Found ${proxy.discoveredProxies.length} Proxy Devices (Tap to connect):',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: primaryTextColor,
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: proxy.discoveredProxies.map((disc) {
+                    final isSelected = proxy.diverterHost == disc.ip && proxy.diverterPort == disc.port;
+                    final isConnected = isSelected && proxy.isDiverterRunning;
+                    final isConnecting = isSelected && proxy.isDiverterLoading;
+                    final isSocks = disc.protocol.toUpperCase() == 'SOCKS5';
+
+                    Color activeColor = const Color(0xFF6366F1);
+                    if (isConnected) {
+                      activeColor = const Color(0xFF10B981);
+                    }
+
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: proxy.isDiverterLoading
+                            ? null
+                            : () async {
+                                final connected = await proxy.connectToDiscoveredProxy(disc);
+                                if (!context.mounted) return;
+                                if (connected) {
+                                  ShadToaster.of(context).show(
+                                    ShadToast(
+                                      title: const Text('Connected to Proxy!'),
+                                      description: Text('Routing all device traffic through ${disc.ip}:${disc.port} (${disc.protocol})'),
+                                    ),
+                                  );
+                                } else if (!proxy.isDiverterRunning && isConnected) {
+                                  ShadToaster.of(context).show(
+                                    ShadToast(
+                                      title: const Text('Disconnected Proxy Tunnel'),
+                                      description: Text('Stopped routing through ${disc.ip}:${disc.port}'),
+                                    ),
+                                  );
+                                }
+                              },
+                        borderRadius: BorderRadius.circular(20),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isConnected
+                                ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.25 : 0.15)
+                                : isSelected
+                                    ? const Color(0xFF6366F1).withValues(alpha: isDark ? 0.25 : 0.15)
+                                    : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04)),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isConnected
+                                  ? const Color(0xFF10B981)
+                                  : isSelected
+                                      ? const Color(0xFF6366F1)
+                                      : (isDark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.1)),
+                              width: (isSelected || isConnected) ? 1.6 : 1.0,
+                            ),
+                            boxShadow: (isSelected || isConnected)
+                                ? [
+                                    BoxShadow(
+                                      color: activeColor.withValues(alpha: 0.35),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isConnecting)
+                                const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
+                                )
+                              else
+                                Icon(
+                                  isConnected
+                                      ? LucideIcons.checkCheck
+                                      : isSelected
+                                          ? LucideIcons.checkCircle2
+                                          : LucideIcons.radio,
+                                  size: 14,
+                                  color: isConnected
+                                      ? const Color(0xFF10B981)
+                                      : isSelected
+                                          ? const Color(0xFF6366F1)
+                                          : mutedTextColor,
+                                ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${disc.ip}:${disc.port}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: (isSelected || isConnected) ? FontWeight.bold : FontWeight.w600,
+                                  color: isConnected
+                                      ? const Color(0xFF10B981)
+                                      : isSelected
+                                          ? (isDark ? Colors.white : const Color(0xFF4338CA))
+                                          : primaryTextColor,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: isSocks
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                                      : const Color(0xFF3B82F6).withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  disc.protocol,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSocks ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                '${disc.latencyMs}ms',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                  color: mutedTextColor,
+                                ),
+                              ),
+                              if (isConnected) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF10B981),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Text(
+                                    'ACTIVE',
+                                    style: TextStyle(
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ] else if (isConnecting) ...[
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Connecting...',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF6366F1),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ] else if (proxy.lastDiscoveredProxy != null) ...[
+                const SizedBox(height: 10),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: proxy.isDiverterLoading
+                        ? null
+                        : () async {
+                            final disc = proxy.lastDiscoveredProxy!;
+                            final connected = await proxy.connectToDiscoveredProxy(disc);
+                            if (!context.mounted) return;
+                            if (connected) {
+                              ShadToaster.of(context).show(
+                                ShadToast(
+                                  title: const Text('Connected to Proxy!'),
+                                  description: Text('Routing all device traffic through ${disc.ip}:${disc.port} (${disc.protocol})'),
+                                ),
+                              );
+                            }
+                          },
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(LucideIcons.checkCheck, color: Color(0xFF10B981), size: 14),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Phone B: ${proxy.lastDiscoveredProxy!.ip}:${proxy.lastDiscoveredProxy!.port} (${proxy.lastDiscoveredProxy!.protocol} · ${proxy.lastDiscoveredProxy!.latencyMs}ms) · Tap to connect',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -1951,11 +2470,19 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   ),
                   const SizedBox(width: 8),
-                  const Text('Scanning Subnet...', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    proxy.discoveredProxies.isEmpty
+                        ? 'Scanning Subnet...'
+                        : 'Found (${proxy.discoveredProxies.length})...',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ] else ...[
                   const Icon(LucideIcons.zap, size: 16, color: Colors.white),
                   const SizedBox(width: 8),
-                  const Text('Scan & Auto-Connect', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text(
+                    proxy.discoveredProxies.isEmpty ? 'Scan & Auto-Connect' : 'Rescan Hotspot',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ],
               ],
             ),
@@ -2018,40 +2545,55 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
         builder: (context, constraints) {
           final isNarrow = constraints.maxWidth < 450;
 
+          final isVpnEnabled = proxy.diverterUseVpn;
+
           final statusSection = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
                 children: [
-                  Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: isRunning ? const Color(0xFF10B981) : Colors.grey,
-                      shape: BoxShape.circle,
-                      boxShadow: isRunning
-                          ? [
-                              BoxShadow(
-                                color: const Color(0xFF10B981).withValues(alpha: 0.6),
-                                blurRadius: 6,
-                                spreadRadius: 2,
-                              ),
-                            ]
-                          : null,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: !isVpnEnabled
+                              ? Colors.amber
+                              : (isRunning ? const Color(0xFF10B981) : Colors.grey),
+                          shape: BoxShape.circle,
+                          boxShadow: (isVpnEnabled && isRunning)
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                                    blurRadius: 6,
+                                    spreadRadius: 2,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        !isVpnEnabled
+                            ? 'WI-FI PROXY MODE (VPN OFF)'
+                            : (isRunning ? 'VPN TUNNEL ACTIVE' : 'DIVERTER STOPPED'),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                          color: !isVpnEnabled
+                              ? Colors.amber
+                              : (isRunning ? const Color(0xFF10B981) : mutedTextColor),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    isRunning ? 'VPN TUNNEL ACTIVE' : 'DIVERTER STOPPED',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                      color: isRunning ? const Color(0xFF10B981) : mutedTextColor,
-                    ),
-                  ),
-                  if (isRunning) ...[
-                    const SizedBox(width: 8),
+                  if (isVpnEnabled && isRunning)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
@@ -2060,14 +2602,20 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                       ),
                       child: const Text('ALL APPS DIVERTED', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
                     ),
-                  ],
+                  if (!isVpnEnabled)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('NO VPN OVERHEAD', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.amber)),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
-                isRunning
-                    ? 'Target: ${proxy.diverterHost}:${proxy.diverterPort} (${proxy.diverterProtocol})'
-                    : 'Target proxy: ${proxy.diverterHost}:${proxy.diverterPort}',
+                'Target proxy: ${proxy.diverterHost}:${proxy.diverterPort} (${proxy.diverterProtocol})',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -2078,12 +2626,14 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               const SizedBox(height: 4),
               Row(
                 children: [
-                  const Text('🔑 ', style: TextStyle(fontSize: 12)),
+                  Text(!isVpnEnabled ? '📡 ' : '🔑 ', style: const TextStyle(fontSize: 12)),
                   Expanded(
                     child: Text(
-                      isRunning
-                          ? 'Android VPN Key active. 100% of phone traffic is routing through Phone B.'
-                          : 'Tap start to tunnel all phone traffic directly to the target proxy IP & port.',
+                      !isVpnEnabled
+                          ? 'VPN tunnel is OFF. To route traffic, configure Proxy: Manual (${proxy.diverterHost}:${proxy.diverterPort}) in Wi-Fi settings.'
+                          : (isRunning
+                              ? 'Android VPN Key active. 100% of phone traffic is routing through Phone B.'
+                              : 'Tap start to tunnel all phone traffic directly to the target proxy IP & port.'),
                       style: TextStyle(fontSize: 12, color: mutedTextColor),
                     ),
                   ),
@@ -2092,37 +2642,83 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
             ],
           );
 
-          final actionButton = ShadButton(
-            size: ShadButtonSize.lg,
-            onPressed: proxy.isDiverterLoading
-                ? null
-                : () async {
-                    await proxy.toggleDiverter();
-                  },
-            backgroundColor: isRunning ? const Color(0xFFEF4444) : const Color(0xFF10B981),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (proxy.isDiverterLoading) ...[
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+          final actionButton = isRunning
+              ? ShadButton.destructive(
+                  size: ShadButtonSize.lg,
+                  onPressed: proxy.isDiverterLoading
+                      ? null
+                      : () async {
+                          await proxy.toggleDiverter();
+                        },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (proxy.isDiverterLoading) ...[
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Stopping...'),
+                      ] else ...[
+                        const Icon(LucideIcons.square, size: 18, color: Colors.white),
+                        const SizedBox(width: 8),
+                        const Text('STOP TRAFFIC DIVERTER', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                      ],
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  const Text('Connecting...'),
-                ] else if (isRunning) ...[
-                  const Icon(LucideIcons.shieldOff, size: 18, color: Colors.white),
-                  const SizedBox(width: 8),
-                  const Text('Stop Diverter', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                ] else ...[
-                  const Icon(LucideIcons.shieldCheck, size: 18, color: Colors.white),
-                  const SizedBox(width: 8),
-                  const Text('Start Diverting', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                ],
-              ],
-            ),
-          );
+                )
+              : (!isVpnEnabled
+                  ? ShadButton.outline(
+                      size: ShadButtonSize.lg,
+                      onPressed: proxy.isTestingProxy ? null : () => proxy.testDiverterProxyConnection(),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (proxy.isTestingProxy) ...[
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('Testing...'),
+                          ] else ...[
+                            const Icon(LucideIcons.radio, size: 18),
+                            const SizedBox(width: 8),
+                            const Text('Test Connection', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ],
+                      ),
+                    )
+                  : ShadButton(
+                      size: ShadButtonSize.lg,
+                      onPressed: proxy.isDiverterLoading
+                          ? null
+                          : () async {
+                              await proxy.toggleDiverter();
+                            },
+                      backgroundColor: const Color(0xFF10B981),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (proxy.isDiverterLoading) ...[
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('Connecting...'),
+                          ] else ...[
+                            const Icon(LucideIcons.shieldCheck, size: 18, color: Colors.white),
+                            const SizedBox(width: 8),
+                            const Text('Start Diverting', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                          ],
+                        ],
+                      ),
+                    ));
 
           if (isNarrow) {
             return Column(
@@ -2164,7 +2760,9 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 600;
-        final itemWidth = isWide ? (constraints.maxWidth - 36) / 4 : (constraints.maxWidth - 12) / 2;
+        final itemWidth = isWide
+            ? (constraints.maxWidth - 36) / 4
+            : (constraints.maxWidth < 380 ? constraints.maxWidth : (constraints.maxWidth - 12) / 2);
 
         return Wrap(
           spacing: 12,
@@ -2321,6 +2919,87 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
 
           const SizedBox(height: 16),
 
+          // Routing Mode: Enable VPN Tunnel (ON / OFF)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: proxy.diverterUseVpn
+                  ? const Color(0xFF10B981).withValues(alpha: 0.08)
+                  : Colors.amber.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: proxy.diverterUseVpn
+                    ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                    : Colors.amber.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  proxy.diverterUseVpn ? LucideIcons.shieldCheck : LucideIcons.wifi,
+                  color: proxy.diverterUseVpn ? const Color(0xFF10B981) : Colors.amber,
+                  size: 22,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          Text(
+                            'Enable Android VPN Tunnel',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: primaryTextColor,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: (proxy.diverterUseVpn ? const Color(0xFF10B981) : Colors.amber).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              proxy.diverterUseVpn ? 'VPN ON' : 'VPN OFF (Wi-Fi Proxy)',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: proxy.diverterUseVpn ? const Color(0xFF10B981) : Colors.amber,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        proxy.diverterUseVpn
+                            ? 'Diverts 100% of all apps through EveryProxy via Android VpnService.'
+                            : 'VPN disabled. Enter Phone B\'s IP in Android Wi-Fi settings without any VPN overhead.',
+                        style: TextStyle(fontSize: 11, color: mutedTextColor),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Switch(
+                  value: proxy.diverterUseVpn,
+                  onChanged: proxy.isDiverterRunning
+                      ? null
+                      : (val) {
+                          proxy.setDiverterUseVpn(val);
+                        },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           // Host & Port Row (Responsive)
           LayoutBuilder(
             builder: (context, constraints) {
@@ -2426,6 +3105,79 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+
+            // Direct Socket Connection Test Button
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: proxy.isTestingProxy ? null : () => proxy.testDiverterProxyConnection(),
+                  icon: proxy.isTestingProxy
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(LucideIcons.radio, size: 15),
+                  label: Text(
+                    proxy.isTestingProxy ? 'Testing Connection...' : 'Test Connection to EveryProxy',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+
+            if (proxy.proxyTestResult != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: proxy.proxyTestResult!.startsWith('SUCCESS')
+                      ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                      : const Color(0xFFEF4444).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: proxy.proxyTestResult!.startsWith('SUCCESS')
+                        ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                        : const Color(0xFFEF4444).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      proxy.proxyTestResult!.startsWith('SUCCESS')
+                          ? LucideIcons.circleCheck
+                          : LucideIcons.circleAlert,
+                      size: 16,
+                      color: proxy.proxyTestResult!.startsWith('SUCCESS')
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFEF4444),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        proxy.proxyTestResult!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: proxy.proxyTestResult!.startsWith('SUCCESS')
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
           ],
 
@@ -2556,6 +3308,173 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
     );
   }
 
+  Widget _buildDiverterWifiProxyCard(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.wifi, size: 18, color: Colors.amber),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Direct Wi-Fi Proxy Setup (Zero VPN Overhead)',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryTextColor),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Since VPN mode is turned OFF, configure your phone\'s Wi-Fi connection directly to EveryProxy. This bypasses Android VpnService and guarantees direct data transfer:',
+            style: TextStyle(fontSize: 12, color: mutedTextColor),
+          ),
+          const SizedBox(height: 14),
+
+          // Host & Port Chips with 1-Tap Copy
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF27272A) : const Color(0xFFF4F4F5),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: isDark ? const Color(0xFF3F3F46) : const Color(0xFFE4E4E7)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Proxy Host: ', style: TextStyle(fontSize: 12, color: mutedTextColor)),
+                    Text(
+                      proxy.diverterHost,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryTextColor),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: proxy.diverterHost));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Host ${proxy.diverterHost} copied to clipboard'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: const Icon(LucideIcons.copy, size: 14, color: Colors.blue),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF27272A) : const Color(0xFFF4F4F5),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: isDark ? const Color(0xFF3F3F46) : const Color(0xFFE4E4E7)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Proxy Port: ', style: TextStyle(fontSize: 12, color: mutedTextColor)),
+                    Text(
+                      '${proxy.diverterPort}',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: primaryTextColor),
+                    ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: '${proxy.diverterPort}'));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Port ${proxy.diverterPort} copied to clipboard'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: const Icon(LucideIcons.copy, size: 14, color: Colors.blue),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+
+          Text(
+            'Recommended Ways to Route Traffic:',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: primaryTextColor),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(LucideIcons.checkCircle2, size: 16, color: Color(0xFF10B981)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Option A (Super Proxy App): Open Super Proxy on this device, add HTTP/SOCKS5 with Host (${proxy.diverterHost}) and Port (${proxy.diverterPort}), and tap Start. It tunnels 100% of all apps seamlessly.',
+                    style: TextStyle(fontSize: 11, color: primaryTextColor, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF3B82F6).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.25)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(LucideIcons.wifi, size: 16, color: Color(0xFF3B82F6)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Option B (Wi-Fi Settings): Android Settings > Wi-Fi > Hotspot Network > Edit / Advanced > Proxy: Manual > Enter Host (${proxy.diverterHost}) & Port (${proxy.diverterPort}). Zero battery overhead.',
+                    style: TextStyle(fontSize: 11, color: primaryTextColor, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDiverterHotspotGuide(
     BuildContext context,
     bool isDark,
@@ -2604,8 +3523,8 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
           const SizedBox(height: 10),
           _buildGuideStep(
             step: '3',
-            title: 'Tap "Scan & Auto-Connect" Above',
-            description: 'FDServer creates an Android VpnService TUN tunnel. 100% of all apps on this phone will seamlessly route their internet requests through Phone B without root!',
+            title: 'Route Apps via Super Proxy (or Wi-Fi Proxy)',
+            description: 'Use the "Test Connection" button above to verify Phone B is responding. Then open Super Proxy on this phone (or Wi-Fi Settings) with Phone B\'s IP and Port to route all apps seamlessly!',
             primaryTextColor: primaryTextColor,
             mutedTextColor: mutedTextColor,
           ),
@@ -2649,6 +3568,163 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDiverterDiagnosticsCard(
+    BuildContext context,
+    ProxyServerProvider proxy,
+    bool isDark,
+    Color primaryTextColor,
+    Color mutedTextColor,
+    Color cardBgColor,
+    Color cardBorderColor,
+  ) {
+    final logs = proxy.diverterLogs;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBgColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(LucideIcons.terminal, size: 18, color: Color(0xFF10B981)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Diverter Diagnostics & Logs',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryTextColor),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${logs.length} events',
+                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                    ),
+                  ),
+                ],
+              ),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ShadButton.outline(
+                    size: ShadButtonSize.sm,
+                    onPressed: () {
+                      final report = proxy.getFormattedDiverterDiagnosticReport();
+                      Clipboard.setData(ClipboardData(text: report));
+                      ShadToaster.of(context).show(
+                        const ShadToast(
+                          title: Text('Copied Diagnostic Report'),
+                          description: Text('Ready to paste to AI or share for troubleshooting.'),
+                        ),
+                      );
+                    },
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.copy, size: 13),
+                        SizedBox(width: 4),
+                        Text('Copy AI Log', style: TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  ShadButton.outline(
+                    size: ShadButtonSize.sm,
+                    onPressed: () => proxy.refreshDiverterLogs(),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.refreshCw, size: 13),
+                        SizedBox(width: 4),
+                        Text('Refresh', style: TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                  ShadButton.ghost(
+                    size: ShadButtonSize.sm,
+                    onPressed: logs.isEmpty ? null : () => proxy.clearDiverterLogs(),
+                    child: const Icon(LucideIcons.trash2, size: 13, color: Colors.redAccent),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Real-time network events, packet interceptions, and proxy handshakes recorded by Android VpnService:',
+            style: TextStyle(fontSize: 11, color: mutedTextColor),
+          ),
+          const SizedBox(height: 10),
+
+          // Terminal-style log box
+          Container(
+            width: double.infinity,
+            height: 190,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0D1117) : const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: logs.isEmpty
+                ? Center(
+                    child: Text(
+                      'No events logged yet.\nTap "Start Diverting" above to record real-time connection events and proxy handshakes.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.5), fontFamily: 'monospace'),
+                    ),
+                  )
+                : ListView.builder(
+                    reverse: false,
+                    itemCount: logs.length,
+                    itemBuilder: (context, index) {
+                      final line = logs[index];
+                      Color logColor = const Color(0xFF94A3B8);
+                      if (line.contains('[OK]') || line.contains('SUCCEEDED') || line.contains('ESTABLISHED')) {
+                        logColor = const Color(0xFF34D399); // Emerald
+                      } else if (line.contains('[ERROR]') || line.contains('[EXCEPTION]') || line.contains('-ERR')) {
+                        logColor = const Color(0xFFF87171); // Red
+                      } else if (line.contains('[TUN-IN]')) {
+                        logColor = const Color(0xFF38BDF8); // Sky blue
+                      } else if (line.contains('[TUNNEL]') || line.contains('[WARN]')) {
+                        logColor = const Color(0xFFFBBF24); // Amber
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 1.5),
+                        child: Text(
+                          line,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontFamily: 'monospace',
+                            color: logColor,
+                            height: 1.3,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2892,7 +3968,12 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
           children: [
             const Icon(LucideIcons.fileSearch, size: 20),
             const SizedBox(width: 8),
-            Text('Request Details (${log.protocol.displayName})'),
+            Expanded(
+              child: Text(
+                'Request Details (${log.protocol.displayName})',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         description: Text('${log.method} ${log.host}:${log.port}'),
@@ -2970,8 +4051,13 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               children: [
                 const Icon(LucideIcons.shieldCheck, size: 20, color: Color(0xFF10B981)),
                 const SizedBox(width: 8),
-                const Text('Domain Filtering & Ad-Block Shield'),
-                const Spacer(),
+                const Expanded(
+                  child: Text(
+                    'Domain Filtering & Ad-Block Shield',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Row(
                   children: [
                     Text(
@@ -3177,8 +4263,13 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               children: [
                 const Icon(LucideIcons.gitMerge, size: 20, color: Color(0xFF8B5CF6)),
                 const SizedBox(width: 8),
-                const Text('Upstream Proxy Chaining'),
-                const Spacer(),
+                const Expanded(
+                  child: Text(
+                    'Upstream Proxy Chaining',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
                 ShadSwitch(
                   value: proxy.upstream.enabled,
                   onChanged: (val) {
@@ -3232,8 +4323,13 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               children: [
                 const Icon(LucideIcons.keyRound, size: 20, color: Color(0xFF3B82F6)),
                 const SizedBox(width: 8),
-                const Text('Proxy Authentication (Require Username/Password)'),
-                const Spacer(),
+                const Expanded(
+                  child: Text(
+                    'Proxy Authentication (Require Username/Password)',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
                 ShadSwitch(
                   value: proxy.auth.enabled,
                   onChanged: (val) {

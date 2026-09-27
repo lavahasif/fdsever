@@ -20,6 +20,7 @@ class MainActivity : FlutterActivity() {
     private val APK_CHANNEL = "fdserver/apk_install"
     private val POWER_CHANNEL = "fdserver/power"
     private val VPN_CHANNEL = "fdserver/vpn"
+    private val CRASH_CHANNEL = "fdserver/crash_logs"
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
 
@@ -28,6 +29,48 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Initialize global JVM uncaught exception crash handler
+        CrashRecorder.init(applicationContext)
+
+        // ── Crash Diagnostics Channel ───────────────────────────────────────
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CRASH_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getNativeCrashLogs" -> {
+                    try {
+                        val logsJson = CrashRecorder.getCrashLogs(applicationContext)
+                        result.success(logsJson)
+                    } catch (e: Exception) {
+                        result.success("[]")
+                    }
+                }
+                "clearNativeCrashLogs" -> {
+                    try {
+                        val success = CrashRecorder.clearCrashLogs(applicationContext)
+                        result.success(success)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "recordNativeError" -> {
+                    try {
+                        val tag = call.argument<String>("tag") ?: "FlutterManualRecord"
+                        val message = call.argument<String>("message") ?: "Unknown error"
+                        val stack = call.argument<String>("stack") ?: ""
+                        CrashRecorder.record(
+                            applicationContext,
+                            "FLUTTER_BRIDGED_RECORD",
+                            tag,
+                            Exception("$message\n$stack")
+                        )
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         // ── APK Install Channel ─────────────────────────────────────────────
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APK_CHANNEL).setMethodCallHandler { call, result ->
@@ -209,43 +252,64 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VPN_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "prepareVpn" -> {
-                    val intent = VpnService.prepare(this)
-                    if (intent != null) {
-                        vpnPendingResult = result
-                        startActivityForResult(intent, VPN_REQUEST_CODE)
-                    } else {
-                        result.success(true) // Permission already granted
+                    try {
+                        val intent = VpnService.prepare(this)
+                        if (intent != null) {
+                            vpnPendingResult = result
+                            startActivityForResult(intent, VPN_REQUEST_CODE)
+                        } else {
+                            result.success(true) // Permission already granted
+                        }
+                    } catch (e: Throwable) {
+                        CrashRecorder.record(this, "VPN_PREPARE_ERROR", "MainActivity", e)
+                        result.error("VPN_PREPARE_ERROR", e.message, null)
                     }
                 }
 
                 "startVpn" -> {
-                    val host = call.argument<String>("host") ?: "192.168.43.1"
-                    val port = call.argument<Int>("port") ?: 1080
-                    val protocol = call.argument<String>("protocol") ?: "SOCKS5"
-                    val bypassLan = call.argument<Boolean>("bypassLan") ?: true
+                    try {
+                        val host = call.argument<String>("host") ?: "192.168.43.1"
+                        val port = call.argument<Int>("port") ?: 1080
+                        val protocol = call.argument<String>("protocol") ?: "SOCKS5"
+                        val bypassLan = call.argument<Boolean>("bypassLan") ?: true
 
-                    val intent = Intent(this, ProxyVpnService::class.java).apply {
-                        action = ProxyVpnService.ACTION_START
-                        putExtra(ProxyVpnService.EXTRA_HOST, host)
-                        putExtra(ProxyVpnService.EXTRA_PORT, port)
-                        putExtra(ProxyVpnService.EXTRA_PROTOCOL, protocol)
-                        putExtra(ProxyVpnService.EXTRA_BYPASS_LAN, bypassLan)
-                    }
+                        val intent = Intent(this, ProxyVpnService::class.java).apply {
+                            action = ProxyVpnService.ACTION_START
+                            putExtra(ProxyVpnService.EXTRA_HOST, host)
+                            putExtra(ProxyVpnService.EXTRA_PORT, port)
+                            putExtra(ProxyVpnService.EXTRA_PROTOCOL, protocol)
+                            putExtra(ProxyVpnService.EXTRA_BYPASS_LAN, bypassLan)
+                        }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            try {
+                                startForegroundService(intent)
+                            } catch (eForeground: Throwable) {
+                                // Fallback for OEM battery restrictions or background launch blocks
+                                CrashRecorder.record(this, "START_FOREGROUND_FALLBACK", "MainActivity", eForeground)
+                                startService(intent)
+                            }
+                        } else {
+                            startService(intent)
+                        }
+                        result.success(true)
+                    } catch (e: Throwable) {
+                        CrashRecorder.record(this, "VPN_START_ERROR", "MainActivity", e)
+                        result.error("VPN_START_ERROR", e.message, e.stackTraceToString())
                     }
-                    result.success(true)
                 }
 
                 "stopVpn" -> {
-                    val intent = Intent(this, ProxyVpnService::class.java).apply {
-                        action = ProxyVpnService.ACTION_STOP
+                    try {
+                        val intent = Intent(this, ProxyVpnService::class.java).apply {
+                            action = ProxyVpnService.ACTION_STOP
+                        }
+                        startService(intent)
+                        result.success(true)
+                    } catch (e: Throwable) {
+                        CrashRecorder.record(this, "VPN_STOP_ERROR", "MainActivity", e)
+                        result.error("VPN_STOP_ERROR", e.message, null)
                     }
-                    startService(intent)
-                    result.success(true)
                 }
 
                 "getVpnStatus" -> {
@@ -256,9 +320,19 @@ class MainActivity : FlutterActivity() {
                         "targetProtocol" to ProxyVpnService.targetProtocol,
                         "bytesIn" to ProxyVpnService.totalBytesIn.get(),
                         "bytesOut" to ProxyVpnService.totalBytesOut.get(),
-                        "lastError" to ProxyVpnService.lastError
+                        "lastError" to ProxyVpnService.lastError,
+                        "logs" to ProxyVpnService.getRecentLogs()
                     )
                     result.success(status)
+                }
+
+                "getVpnLogs" -> {
+                    result.success(ProxyVpnService.getRecentLogs())
+                }
+
+                "clearVpnLogs" -> {
+                    ProxyVpnService.clearLogs()
+                    result.success(true)
                 }
 
                 else -> result.notImplemented()

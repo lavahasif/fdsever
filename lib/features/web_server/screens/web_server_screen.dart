@@ -95,10 +95,15 @@ class _WebServerScreenState extends State<WebServerScreen> {
               children: [
                 const Icon(LucideIcons.network, size: 18),
                 const SizedBox(width: 8),
-                Text('Available System IPs (${serverProvider.systemIps.length} found)'),
-                const Spacer(),
+                Expanded(
+                  child: Text(
+                    'Available System IPs (${serverProvider.systemIps.length} found)',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 ShadButton.ghost(
                   size: ShadButtonSize.sm,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   onPressed: serverProvider.isSearchingIps
                       ? null
                       : () => serverProvider.searchSystemIps(),
@@ -112,7 +117,7 @@ class _WebServerScreenState extends State<WebServerScreen> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        serverProvider.isSearchingIps ? 'Searching...' : 'Search System IPs',
+                        serverProvider.isSearchingIps ? 'Searching...' : 'Refresh',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ],

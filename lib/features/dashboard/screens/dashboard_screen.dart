@@ -59,7 +59,7 @@ class DashboardScreen extends StatelessWidget {
                 crossAxisCount: crossAxisCount,
                 crossAxisSpacing: 16,
                 mainAxisSpacing: 16,
-                childAspectRatio: constraints.maxWidth > 550 ? 1.35 : 2.0,
+                childAspectRatio: constraints.maxWidth > 550 ? 1.35 : (crossAxisCount == 1 ? 2.2 : 1.35),
                 children: [
                   _buildPillarCard(
                     context,
@@ -271,13 +271,15 @@ class DashboardScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         const Text(
                           'FDServer Network & Server Center',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
-                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(

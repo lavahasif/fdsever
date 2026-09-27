@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../../core/models/proxy_models.dart';
+import '../../../core/services/crash_log_service.dart';
 import '../../../core/services/network_service.dart';
 import '../../../core/services/power_service.dart';
 import '../../../core/services/proxy_server_service.dart';
@@ -38,6 +40,10 @@ class ProxyServerProvider extends ChangeNotifier {
   bool _isScanningProxy = false;
   String? _diverterError;
   DiscoveredProxy? _lastDiscoveredProxy;
+  final List<DiscoveredProxy> _discoveredProxies = [];
+  bool _diverterUseVpn = true;
+  bool _isTestingProxy = false;
+  String? _proxyTestResult;
 
   List<Map<String, String>> _systemIps = [];
   String _primaryIp = '127.0.0.1';
@@ -256,24 +262,28 @@ class ProxyServerProvider extends ChangeNotifier {
 
   Future<void> toggleServer() async {
     _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    if (_service.isRunning) {
-      await _service.stopServer();
-      await _powerService?.releaseWakeLock('forward_proxy');
-    } else {
-      await searchSystemIps();
-
-      final success = await _service.startServer(
-        host: _host,
-        port: _port,
-      );
-      if (!success) {
-        _errorMessage = 'Failed to bind proxy to $_host:$_port. Port may be in use by another service.';
+    try {
+      CrashLogService().addBreadcrumb('ForwardProxy', _service.isRunning ? 'User stopping forward proxy' : 'User starting forward proxy on $_host:$_port');
+      if (_service.isRunning) {
+        await _service.stopServer();
+        await _powerService?.releaseWakeLock('forward_proxy');
       } else {
-        await _powerService?.acquireWakeLock('forward_proxy');
+        await searchSystemIps();
+
+        final success = await _service.startServer(
+          host: _host,
+          port: _port,
+        );
+        if (!success) {
+          _errorMessage = 'Failed to bind proxy to $_host:$_port. Port may be in use by another service.';
+          CrashLogService().recordManualError('ForwardProxyServer', _errorMessage!);
+        } else {
+          await _powerService?.acquireWakeLock('forward_proxy');
+        }
       }
+    } catch (e, stack) {
+      _errorMessage = 'Proxy server error: $e';
+      CrashLogService().recordManualError('ForwardProxyServer', e, stack);
     }
 
     _isLoading = false;
@@ -406,27 +416,30 @@ class ProxyServerProvider extends ChangeNotifier {
   }
 
   Future<void> toggleReverseProxy() async {
-    _isReverseProxyLoading = true;
-    _reverseProxyError = null;
-    notifyListeners();
-
-    if (_reverseProxyService.isRunning) {
-      await _reverseProxyService.stopServer();
-      await _powerService?.releaseWakeLock('reverse_proxy');
-    } else {
-      await searchSystemIps();
-      _reverseProxyService.setRoutes(_reverseProxyRoutes);
-      final success = await _reverseProxyService.startServer(
-        host: _reverseProxyHost,
-        port: _reverseProxyPort,
-      );
-      if (!success) {
-        _reverseProxyError =
-            'Failed to bind reverse proxy on $_reverseProxyHost:$_reverseProxyPort. Port may be in use.';
+    try {
+      CrashLogService().addBreadcrumb('ReverseProxy', _reverseProxyService.isRunning ? 'User stopping reverse proxy' : 'User starting reverse proxy on $_reverseProxyHost:$_reverseProxyPort');
+      if (_reverseProxyService.isRunning) {
+        await _reverseProxyService.stopServer();
+        await _powerService?.releaseWakeLock('reverse_proxy');
       } else {
-        await _powerService?.acquireWakeLock('reverse_proxy');
-        checkRouteHealth();
+        await searchSystemIps();
+        _reverseProxyService.setRoutes(_reverseProxyRoutes);
+        final success = await _reverseProxyService.startServer(
+          host: _reverseProxyHost,
+          port: _reverseProxyPort,
+        );
+        if (!success) {
+          _reverseProxyError =
+              'Failed to bind reverse proxy on $_reverseProxyHost:$_reverseProxyPort. Port may be in use.';
+          CrashLogService().recordManualError('ReverseProxyGateway', _reverseProxyError!);
+        } else {
+          await _powerService?.acquireWakeLock('reverse_proxy');
+          checkRouteHealth();
+        }
       }
+    } catch (e, stack) {
+      _reverseProxyError = 'Reverse proxy error: $e';
+      CrashLogService().recordManualError('ReverseProxyGateway', e, stack);
     }
 
     _isReverseProxyLoading = false;
@@ -506,11 +519,113 @@ class ProxyServerProvider extends ChangeNotifier {
   bool get isScanningProxy => _isScanningProxy;
   String? get diverterError => _diverterError;
   DiscoveredProxy? get lastDiscoveredProxy => _lastDiscoveredProxy;
+  List<DiscoveredProxy> get discoveredProxies => List.unmodifiable(_discoveredProxies);
+
+  void selectDiscoveredProxy(DiscoveredProxy proxy) {
+    _lastDiscoveredProxy = proxy;
+    _diverterHost = proxy.ip;
+    _diverterPort = proxy.port;
+    _diverterProtocol = proxy.protocol;
+    notifyListeners();
+  }
+
+  /// Connects immediately to the selected discovered proxy.
+  /// If the VPN diverter was already running on this proxy, toggles it off.
+  /// If running on another proxy, seamlessly switches.
+  Future<bool> connectToDiscoveredProxy(DiscoveredProxy proxy) async {
+    final wasRunningSame = _vpnDiverterService.isRunning &&
+        _diverterHost == proxy.ip &&
+        _diverterPort == proxy.port &&
+        _diverterProtocol.toUpperCase() == proxy.protocol.toUpperCase();
+
+    _lastDiscoveredProxy = proxy;
+    _diverterHost = proxy.ip;
+    _diverterPort = proxy.port;
+    _diverterProtocol = proxy.protocol;
+    notifyListeners();
+
+    if (wasRunningSame) {
+      // Tapping the active proxy disconnects / stops
+      return await toggleDiverter();
+    }
+
+    _isDiverterLoading = true;
+    _diverterError = null;
+    notifyListeners();
+
+    if (_vpnDiverterService.isRunning) {
+      // Disconnect previous tunnel before starting the new one
+      await _vpnDiverterService.stopVpn();
+      await _powerService?.releaseWakeLock('vpn_diverter');
+    }
+
+    bool result = false;
+    try {
+      CrashLogService().addBreadcrumb(
+        'TrafficDiverter',
+        'Connecting to discovered proxy: ${proxy.ip}:${proxy.port} (${proxy.protocol})',
+      );
+      result = await _vpnDiverterService.startVpn(
+        host: _diverterHost,
+        port: _diverterPort,
+        protocol: _diverterProtocol,
+        bypassLan: _diverterBypassLan,
+      );
+      if (result) {
+        await _powerService?.acquireWakeLock('vpn_diverter');
+      } else {
+        _diverterError = _vpnDiverterService.lastError ?? 'Failed to connect to ${proxy.ip}:${proxy.port}.';
+        CrashLogService().recordManualError('TrafficDiverter', _diverterError!);
+      }
+    } catch (e, stack) {
+      _diverterError = 'VPN Diverter error: $e';
+      CrashLogService().recordManualError('TrafficDiverter', e, stack);
+    } finally {
+      _isDiverterLoading = false;
+      notifyListeners();
+    }
+
+    return result;
+  }
+
+  bool get diverterUseVpn => _diverterUseVpn;
+  bool get isTestingProxy => _isTestingProxy;
+  String? get proxyTestResult => _proxyTestResult;
 
   int get diverterBytesIn => _vpnDiverterService.bytesIn;
   int get diverterBytesOut => _vpnDiverterService.bytesOut;
   int get diverterDownloadSpeed => _vpnDiverterService.downloadSpeedBps;
   int get diverterUploadSpeed => _vpnDiverterService.uploadSpeedBps;
+
+  void setDiverterUseVpn(bool useVpn) {
+    _diverterUseVpn = useVpn;
+    notifyListeners();
+  }
+
+  Future<void> testDiverterProxyConnection() async {
+    _isTestingProxy = true;
+    _proxyTestResult = null;
+    notifyListeners();
+
+    try {
+      CrashLogService().addBreadcrumb(
+        'TrafficDiverter',
+        'Testing socket connectivity to $_diverterHost:$_diverterPort',
+      );
+      final sw = Stopwatch()..start();
+      final socket = await Socket.connect(_diverterHost, _diverterPort, timeout: const Duration(seconds: 4));
+      sw.stop();
+      await socket.close();
+      _proxyTestResult = 'SUCCESS: Reachable in ${sw.elapsedMilliseconds}ms! Phone B is accepting connections on $_diverterHost:$_diverterPort.';
+      CrashLogService().addBreadcrumb('TrafficDiverter', _proxyTestResult!);
+    } catch (e) {
+      _proxyTestResult = 'FAILED: Cannot connect to $_diverterHost:$_diverterPort ($e). Check that EveryProxy is running on Phone B and both phones are on the same hotspot.';
+      CrashLogService().recordManualError('TrafficDiverter', _proxyTestResult!);
+    } finally {
+      _isTestingProxy = false;
+      notifyListeners();
+    }
+  }
 
   void setDiverterHost(String host) {
     _diverterHost = host.trim();
@@ -538,21 +653,34 @@ class ProxyServerProvider extends ChangeNotifier {
     notifyListeners();
 
     bool result = false;
-    if (_vpnDiverterService.isRunning) {
-      result = await _vpnDiverterService.stopVpn();
-      await _powerService?.releaseWakeLock('vpn_diverter');
-    } else {
-      result = await _vpnDiverterService.startVpn(
-        host: _diverterHost,
-        port: _diverterPort,
-        protocol: _diverterProtocol,
-        bypassLan: _diverterBypassLan,
+    try {
+      CrashLogService().addBreadcrumb(
+        'TrafficDiverter',
+        _vpnDiverterService.isRunning
+            ? 'User stopping VPN diverter'
+            : 'User starting VPN diverter (Target: $_diverterHost:$_diverterPort, Proto: $_diverterProtocol, BypassLan: $_diverterBypassLan)',
       );
-      if (result) {
-        await _powerService?.acquireWakeLock('vpn_diverter');
+
+      if (_vpnDiverterService.isRunning) {
+        result = await _vpnDiverterService.stopVpn();
+        await _powerService?.releaseWakeLock('vpn_diverter');
       } else {
-        _diverterError = _vpnDiverterService.lastError ?? 'Failed to start VPN tunnel.';
+        result = await _vpnDiverterService.startVpn(
+          host: _diverterHost,
+          port: _diverterPort,
+          protocol: _diverterProtocol,
+          bypassLan: _diverterBypassLan,
+        );
+        if (result) {
+          await _powerService?.acquireWakeLock('vpn_diverter');
+        } else {
+          _diverterError = _vpnDiverterService.lastError ?? 'Failed to start VPN tunnel.';
+          CrashLogService().recordManualError('TrafficDiverter', _diverterError!);
+        }
       }
+    } catch (e, stack) {
+      _diverterError = 'VPN Diverter error: $e';
+      CrashLogService().recordManualError('TrafficDiverter', e, stack);
     }
 
     _isDiverterLoading = false;
@@ -560,35 +688,103 @@ class ProxyServerProvider extends ChangeNotifier {
     return result;
   }
 
-  /// Fast-scans the Hotspot subnet for Phone B running EveryProxy
-  /// and automatically connects when found!
-  Future<bool> autoDiscoverAndConnectHotspot() async {
+  /// Fast-scans the Hotspot subnet for Phone B running EveryProxy/SuperProxy.
+  /// Discovers all matching IPs, streams them into [discoveredProxies] in real-time,
+  /// and automatically selects / connects.
+  Future<bool> autoDiscoverAndConnectHotspot({bool autoConnect = true}) async {
     _isScanningProxy = true;
     _diverterError = null;
+    _discoveredProxies.clear();
     notifyListeners();
 
+    final String rememberedTarget = _diverterHost;
     try {
-      final discovered = await _vpnDiverterService.autoDiscoverHotspotProxy();
-      if (discovered != null) {
-        _lastDiscoveredProxy = discovered;
-        _diverterHost = discovered.ip;
-        _diverterPort = discovered.port;
-        _diverterProtocol = discovered.protocol;
-        _isScanningProxy = false;
-        notifyListeners();
+      CrashLogService().addBreadcrumb('TrafficDiverter', 'Initiating Hotspot subnet multi-IP auto-discovery');
+      final list = await _vpnDiverterService.discoverAllHotspotProxies(
+        lastKnownHost: rememberedTarget,
+        onFound: (proxy) {
+          _discoveredProxies.add(proxy);
+          // Priority selection:
+          // 1. Exact match with user's configured/remembered host (e.g. Phone B)
+          // 2. SOCKS5 over HTTP
+          // 3. First found
+          final isMatchesRemembered = proxy.ip == rememberedTarget;
+          final isUpgradeToSocks = _diverterProtocol.toUpperCase() != 'SOCKS5' && proxy.protocol.toUpperCase() == 'SOCKS5';
+          final isFirst = _discoveredProxies.length == 1;
 
-        // Auto-connect immediately
-        return await toggleDiverter();
+          if (isMatchesRemembered || isUpgradeToSocks || isFirst) {
+            _lastDiscoveredProxy = proxy;
+            _diverterHost = proxy.ip;
+            _diverterPort = proxy.port;
+            _diverterProtocol = proxy.protocol;
+          }
+          notifyListeners();
+        },
+      );
+
+      if (list.isNotEmpty) {
+        CrashLogService().addBreadcrumb('TrafficDiverter', 'Found ${list.length} proxy endpoints on subnet');
+        if (autoConnect && !isDiverterRunning) {
+          // Auto-connect to the selected proxy
+          return await toggleDiverter();
+        }
+        return true;
       } else {
         _diverterError = 'No proxy server found on hotspot. Ensure EveryProxy is running on the other phone.';
+        CrashLogService().addBreadcrumb('TrafficDiverter', 'Auto-discovery finished: No proxy detected on subnet');
       }
-    } catch (e) {
+    } catch (e, stack) {
       _diverterError = 'Scan error: $e';
+      CrashLogService().recordManualError('TrafficDiverterScan', e, stack);
+    } finally {
+      _isScanningProxy = false;
+      notifyListeners();
     }
 
-    _isScanningProxy = false;
-    notifyListeners();
     return false;
+  }
+
+  List<String> get diverterLogs => _vpnDiverterService.recentLogs;
+
+  Future<void> refreshDiverterLogs() async {
+    await _vpnDiverterService.fetchVpnLogs();
+    notifyListeners();
+  }
+
+  Future<void> clearDiverterLogs() async {
+    await _vpnDiverterService.clearVpnLogs();
+    notifyListeners();
+  }
+
+  String getFormattedDiverterDiagnosticReport() {
+    final buffer = StringBuffer();
+    buffer.writeln('### 📡 FDServer Traffic Diverter Diagnostic Report');
+    buffer.writeln('**Generated at:** ${DateTime.now().toIso8601String()}');
+    buffer.writeln('**Diverter Status:** ${isDiverterRunning ? "🟢 RUNNING (VPN ON)" : "⚪ STOPPED"}');
+    buffer.writeln('**Target Host:** $_diverterHost');
+    buffer.writeln('**Target Port:** $_diverterPort');
+    buffer.writeln('**Protocol:** $_diverterProtocol');
+    buffer.writeln('**Bypass LAN:** $_diverterBypassLan');
+    buffer.writeln('**VPN Mode Enabled:** $_diverterUseVpn');
+    buffer.writeln('**Bytes Transferred:** In: $diverterBytesIn B | Out: $diverterBytesOut B');
+    if (_diverterError != null) {
+      buffer.writeln('**Last Error:** `$_diverterError`');
+    }
+    if (_proxyTestResult != null) {
+      buffer.writeln('**Socket Test Result:** `$_proxyTestResult`');
+    }
+    buffer.writeln('');
+    buffer.writeln('#### 📜 Native VPN Log Trace:');
+    if (diverterLogs.isEmpty) {
+      buffer.writeln('_No logs recorded yet. Start the Traffic Diverter to capture network packets._');
+    } else {
+      buffer.writeln('```text');
+      for (final line in diverterLogs) {
+        buffer.writeln(line);
+      }
+      buffer.writeln('```');
+    }
+    return buffer.toString();
   }
 
   bool _isDisposed = false;

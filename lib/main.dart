@@ -1,8 +1,10 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'core/services/apk_install_service.dart';
+import 'core/services/crash_log_service.dart';
 import 'core/services/file_transfer_service.dart';
 import 'core/services/network_service.dart';
 import 'core/services/power_service.dart';
@@ -35,6 +37,21 @@ import 'shared/widgets/responsive_sidebar.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize CrashLogService to record any startup or runtime errors
+  final crashLogService = CrashLogService();
+  await crashLogService.init();
+
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    crashLogService.recordFlutterError(details);
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    crashLogService.recordAsyncError(error, stack);
+    return true; // Prevents app termination on unhandled async exceptions
+  };
+
   final storageService = await StorageService.init();
   final powerService = PowerService();
   await powerService.init(
@@ -59,6 +76,7 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider<CrashLogService>.value(value: crashLogService),
         Provider<StorageService>.value(value: storageService),
         Provider<ApkInstallService>.value(value: apkInstallService),
         Provider<PowerService>.value(value: powerService),
@@ -220,33 +238,36 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                 ),
           backgroundColor:
               isDark ? const Color(0xFF09090B) : const Color(0xFFF4F4F5),
-          body: Column(
-            children: [
-              AppHeader(
-                onMenuPressed: isDesktopOrTablet
-                    ? null
-                    : () => _scaffoldKey.currentState?.openDrawer(),
-                onSettingsPressed: () => _onNavigate(4),
-              ),
-              Expanded(
-                child: Row(
-                  children: [
-                    if (isDesktopOrTablet)
-                      ResponsiveSidebar(
-                        selectedPillarIndex: _selectedPillar,
-                        selectedSubIndex: _currentSubIndex,
-                        onDestinationSelected: _onNavigate,
-                      ),
-                    Expanded(
-                      child: Container(
-                        color: isDark ? const Color(0xFF09090B) : Colors.white,
-                        child: _buildBody(),
-                      ),
-                    ),
-                  ],
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                AppHeader(
+                  onMenuPressed: isDesktopOrTablet
+                      ? null
+                      : () => _scaffoldKey.currentState?.openDrawer(),
+                  onSettingsPressed: () => _onNavigate(4),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      if (isDesktopOrTablet)
+                        ResponsiveSidebar(
+                          selectedPillarIndex: _selectedPillar,
+                          selectedSubIndex: _currentSubIndex,
+                          onDestinationSelected: _onNavigate,
+                        ),
+                      Expanded(
+                        child: Container(
+                          color: isDark ? const Color(0xFF09090B) : Colors.white,
+                          child: _buildBody(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
           bottomNavigationBar: isDesktopOrTablet
               ? null

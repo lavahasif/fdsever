@@ -175,8 +175,12 @@ class _FileTransferScreenState extends State<FileTransferScreen> {
               children: [
                 const Icon(LucideIcons.radio, size: 16),
                 const SizedBox(width: 8),
-                const Text('Target Receiver Endpoint'),
-                const Spacer(),
+                const Expanded(
+                  child: Text(
+                    'Target Receiver Endpoint',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 if (scannerProvider.primaryIp.isNotEmpty)
                   InkWell(
                     onTap: () {
