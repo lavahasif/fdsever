@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Network and Install Permissions (Easy Install feature) -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -6,6 +7,11 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
+
+    <!-- FocusGuard App Blocker Permissions -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions"/>
 
     <!-- Background Execution & Wake Lock (Prevents server & auto installer stopping when screen dies) -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
@@ -76,6 +82,19 @@
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:foregroundServiceType="location"
             android:exported="true" />
+
+        <!-- FocusGuard: Accessibility Service for blocking apps, YouTube Shorts & Instagram Reels -->
+        <service
+            android:name=".focus_guard.FocusAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <meta-data android:name="flutterEmbedding" android:value="2"/>
     </application>

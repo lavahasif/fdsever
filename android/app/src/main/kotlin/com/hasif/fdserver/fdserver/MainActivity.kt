@@ -10,6 +10,8 @@ import android.view.WindowManager
 import androidx.core.content.FileProvider
 import android.net.VpnService
 import com.hasif.fdserver.fdserver.vpn.ProxyVpnService
+import android.app.AppOpsManager
+import com.hasif.fdserver.fdserver.focus_guard.FocusAccessibilityService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -21,8 +23,10 @@ class MainActivity : FlutterActivity() {
     private val POWER_CHANNEL = "fdserver/power"
     private val VPN_CHANNEL = "fdserver/vpn"
     private val CRASH_CHANNEL = "fdserver/crash_logs"
+    private val FOCUS_GUARD_CHANNEL = "fdserver/focus_guard"
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
+    private var focusGuardChannel: MethodChannel? = null
     // Store pending start arguments when VPN permission is not yet granted
     private var pendingVpnStartArgs: Map<String, Any>? = null
 
@@ -81,6 +85,10 @@ class MainActivity : FlutterActivity() {
                 this.action = ProxyVpnService.ACTION_STOP
             }
             startService(stopIntent)
+        } else if (action == "com.hasif.fdserver.FOCUS_INTERVENTION") {
+            val blockedPkg = intent.getStringExtra("blocked_package") ?: ""
+            val blockReason = intent.getStringExtra("block_reason") ?: ""
+            focusGuardChannel?.invokeMethod("onInterventionTriggered", mapOf("package" to blockedPkg, "reason" to blockReason))
         }
     }
 
@@ -390,6 +398,158 @@ class MainActivity : FlutterActivity() {
 
                 else -> result.notImplemented()
             }
+        }
+
+        // ── FocusGuard App Blocker Channel ─────────────────────────────────
+        focusGuardChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FOCUS_GUARD_CHANNEL)
+        FocusAccessibilityService.listener = { pkg, reason ->
+            runOnUiThread {
+                focusGuardChannel?.invokeMethod("onInterventionTriggered", mapOf("package" to pkg, "reason" to reason))
+            }
+        }
+        focusGuardChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isAccessibilityEnabled" -> {
+                    val isRunning = FocusAccessibilityService.isServiceRunning()
+                    val isEnabledInSettings = isAccessibilityServiceEnabled(this)
+                    result.success(isRunning || isEnabledInSettings)
+                }
+                "openAccessibilitySettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("ACCESSIBILITY_SETTINGS_ERROR", e.message, null)
+                    }
+                }
+                "hasUsageStatsPermission" -> {
+                    try {
+                        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+                        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName)
+                        }
+                        result.success(mode == AppOpsManager.MODE_ALLOWED)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+                "openUsageStatsSettings" -> {
+                    try {
+                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("USAGE_SETTINGS_ERROR", e.message, null)
+                    }
+                }
+                "hasOverlayPermission" -> {
+                    val allowed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        Settings.canDrawOverlays(this)
+                    } else {
+                        true
+                    }
+                    result.success(allowed)
+                }
+                "openOverlaySettings" -> {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:$packageName")
+                            ).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(intent)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("OVERLAY_SETTINGS_ERROR", e.message, null)
+                    }
+                }
+                "startFocusLock" -> {
+                    try {
+                        val pkgs = call.argument<List<String>>("blockedPackages")
+                        val blockShorts = call.argument<Boolean>("blockShorts") ?: true
+                        if (pkgs != null) {
+                            FocusAccessibilityService.blockedPackages = pkgs.toMutableSet()
+                        }
+                        FocusAccessibilityService.blockShortsAndReels = blockShorts
+                        FocusAccessibilityService.isStrictActive = true
+                        FocusAccessibilityService.saveConfig(this)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("START_FOCUS_ERROR", e.message, null)
+                    }
+                }
+                "stopFocusLock" -> {
+                    try {
+                        FocusAccessibilityService.isStrictActive = false
+                        FocusAccessibilityService.saveConfig(this)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("STOP_FOCUS_ERROR", e.message, null)
+                    }
+                }
+                "getStatus" -> {
+                    try {
+                        FocusAccessibilityService.loadConfig(this)
+                        val map = mapOf(
+                            "isServiceRunning" to FocusAccessibilityService.isServiceRunning(),
+                            "isStrictActive" to FocusAccessibilityService.isStrictActive,
+                            "blockShorts" to FocusAccessibilityService.blockShortsAndReels,
+                            "blockedPackages" to FocusAccessibilityService.blockedPackages.toList(),
+                            "temptationsCount" to FocusAccessibilityService.getTemptationsCount(this)
+                        )
+                        result.success(map)
+                    } catch (e: Exception) {
+                        result.error("GET_STATUS_ERROR", e.message, null)
+                    }
+                }
+                "getInstalledApps" -> {
+                    Thread {
+                        try {
+                            val pm = packageManager
+                            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                                addCategory(Intent.CATEGORY_LAUNCHER)
+                            }
+                            val apps = pm.queryIntentActivities(mainIntent, 0)
+                            val list = mutableListOf<Map<String, String>>()
+                            for (resolveInfo in apps) {
+                                val pkg = resolveInfo.activityInfo.packageName
+                                if (pkg == packageName) continue
+                                val label = resolveInfo.loadLabel(pm).toString()
+                                list.add(mapOf("packageName" to pkg, "appName" to label))
+                            }
+                            list.sortBy { it["appName"]?.lowercase() ?: "" }
+                            runOnUiThread { result.success(list) }
+                        } catch (e: Exception) {
+                            runOnUiThread { result.success(emptyList<Map<String, String>>()) }
+                        }
+                    }.start()
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        return try {
+            val expectedServiceName = "${context.packageName}/${FocusAccessibilityService::class.java.canonicalName}"
+            val enabledServices = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+            enabledServices.contains(expectedServiceName) || enabledServices.contains(FocusAccessibilityService::class.java.simpleName)
+        } catch (e: Exception) {
+            false
         }
     }
 

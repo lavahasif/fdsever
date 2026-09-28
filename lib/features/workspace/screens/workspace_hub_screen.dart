@@ -5,6 +5,8 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../../shared/widgets/category_segmented_bar.dart';
 import '../../auto_trail/providers/auto_trail_provider.dart';
 import '../../auto_trail/screens/auto_trail_screen.dart';
+import '../../focus_guard/providers/focus_guard_provider.dart';
+import '../../focus_guard/screens/focus_guard_hub_screen.dart';
 import '../../notes/providers/notes_provider.dart';
 import '../../notes/screens/notes_screen.dart';
 import '../../tutorials/providers/tutorials_provider.dart';
@@ -41,6 +43,7 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
     final notes = context.watch<NotesProvider>();
     final tutorials = context.watch<TutorialsProvider>();
     final autoTrail = context.watch<AutoTrailProvider>();
+    final focusGuard = context.watch<FocusGuardProvider>();
 
     final tabs = [
       CategoryTabItem(
@@ -58,10 +61,19 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
         icon: LucideIcons.navigation,
         badgeText: autoTrail.isServiceRunning ? 'Active' : (autoTrail.points.isNotEmpty ? '${autoTrail.points.length}' : null),
       ),
+      CategoryTabItem(
+        title: 'Focus Guard',
+        icon: LucideIcons.shieldAlert,
+        badgeText: focusGuard.isLockActive ? 'Locked' : (focusGuard.temptationsResisted > 0 ? '${focusGuard.temptationsResisted}' : null),
+        showActiveDot: focusGuard.isLockActive,
+      ),
     ];
 
     Widget body;
     switch (_selectedSubIndex) {
+      case 3:
+        body = const FocusGuardHubScreen();
+        break;
       case 2:
         body = const AutoTrailScreen();
         break;

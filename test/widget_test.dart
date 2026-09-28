@@ -28,6 +28,7 @@ import 'package:fdserver/features/whatsapp/screens/whatsapp_screen.dart';
 import 'package:fdserver/shared/widgets/responsive_sidebar.dart';
 import 'package:fdserver/shared/widgets/app_header.dart';
 import 'package:fdserver/features/auto_trail/providers/auto_trail_provider.dart';
+import 'package:fdserver/features/focus_guard/providers/focus_guard_provider.dart';
 import 'package:fdserver/main.dart';
 
 Widget createTestApp({
@@ -71,6 +72,7 @@ Widget createTestApp({
         create: (_) => ProxyServerProvider(proxyServerService, networkService, storageService),
       ),
       ChangeNotifierProvider(create: (_) => AutoTrailProvider()),
+      ChangeNotifierProvider(create: (_) => FocusGuardProvider()),
     ],
     child: ShadApp(
       title: 'FDServer Test',

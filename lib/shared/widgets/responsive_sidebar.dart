@@ -136,6 +136,12 @@ class ResponsiveSidebar extends StatelessWidget {
           pillarIndex: 3,
           subIndex: 2,
         ),
+        SidebarDestination(
+          title: 'Focus Guard',
+          icon: LucideIcons.shieldAlert,
+          pillarIndex: 3,
+          subIndex: 3,
+        ),
       ],
     ),
   ];

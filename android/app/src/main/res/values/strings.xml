@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">FocusGuard uses this service to detect distracting apps, YouTube Shorts, and Instagram Reels in real-time to protect your focus and block addictive doom-scrolling.</string>
+</resources>

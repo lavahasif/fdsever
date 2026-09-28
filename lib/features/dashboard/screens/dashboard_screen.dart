@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../auto_trail/providers/auto_trail_provider.dart';
+import '../../focus_guard/providers/focus_guard_provider.dart';
 import '../../network_scanner/providers/scanner_provider.dart';
 import '../../notes/providers/notes_provider.dart';
 import '../../proxy_server/providers/proxy_provider.dart';
@@ -22,9 +23,8 @@ class DashboardScreen extends StatelessWidget {
     final serverProvider = context.watch<WebServerProvider>();
     final scannerProvider = context.watch<ScannerProvider>();
     final proxyProvider = context.watch<ProxyServerProvider>();
-    final notesProvider = context.watch<NotesProvider>();
-    final tutsProvider = context.watch<TutorialsProvider>();
     final autoTrail = context.watch<AutoTrailProvider>();
+    final focusGuard = context.watch<FocusGuardProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
@@ -132,6 +132,16 @@ class DashboardScreen extends StatelessWidget {
                     icon: LucideIcons.navigation,
                     accentColor: const Color(0xFF3B82F6),
                     onTap: () => onNavigate(3, 2),
+                  ),
+                  _buildPillarCard(
+                    context,
+                    title: 'Focus Guard',
+                    badge: focusGuard.isLockActive ? 'Locked' : (focusGuard.temptationsResisted > 0 ? '${focusGuard.temptationsResisted} Blocked' : 'Ready'),
+                    badgeColor: focusGuard.isLockActive ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                    description: 'Kill YouTube Shorts & Reels, lock distracting apps & stay hardcore focused with reality checks.',
+                    icon: LucideIcons.shieldAlert,
+                    accentColor: const Color(0xFFEF4444),
+                    onTap: () => onNavigate(3, 3),
                   ),
                 ],
               );

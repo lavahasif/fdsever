@@ -28,6 +28,7 @@ import 'package:fdserver/features/tutorials/providers/tutorials_provider.dart';
 import 'package:fdserver/features/web_server/providers/web_server_provider.dart';
 import 'package:fdserver/features/whatsapp/providers/whatsapp_provider.dart';
 import 'package:fdserver/features/auto_trail/providers/auto_trail_provider.dart';
+import 'package:fdserver/features/focus_guard/providers/focus_guard_provider.dart';
 import 'package:fdserver/main.dart';
 
 Widget createMobileTestApp({
@@ -88,6 +89,7 @@ Widget createMobileTestApp({
           ),
         ),
       ChangeNotifierProvider(create: (_) => AutoTrailProvider()),
+      ChangeNotifierProvider(create: (_) => FocusGuardProvider()),
     ],
     child: ShadApp(
       title: 'FDServer UI Test',
