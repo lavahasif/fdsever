@@ -130,6 +130,12 @@ class ResponsiveSidebar extends StatelessWidget {
           pillarIndex: 3,
           subIndex: 1,
         ),
+        SidebarDestination(
+          title: 'Auto Trail',
+          icon: LucideIcons.navigation,
+          pillarIndex: 3,
+          subIndex: 2,
+        ),
       ],
     ),
   ];

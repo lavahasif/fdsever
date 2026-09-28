@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../../auto_trail/providers/auto_trail_provider.dart';
 import '../../network_scanner/providers/scanner_provider.dart';
 import '../../notes/providers/notes_provider.dart';
 import '../../proxy_server/providers/proxy_provider.dart';
@@ -23,6 +24,7 @@ class DashboardScreen extends StatelessWidget {
     final proxyProvider = context.watch<ProxyServerProvider>();
     final notesProvider = context.watch<NotesProvider>();
     final tutsProvider = context.watch<TutorialsProvider>();
+    final autoTrail = context.watch<AutoTrailProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
@@ -120,6 +122,16 @@ class DashboardScreen extends StatelessWidget {
                     icon: LucideIcons.package,
                     accentColor: const Color(0xFFEC4899),
                     onTap: () => onNavigate(2, 1),
+                  ),
+                  _buildPillarCard(
+                    context,
+                    title: 'Auto Trail',
+                    badge: autoTrail.isServiceRunning ? 'Tracking' : 'Passive',
+                    badgeColor: autoTrail.isServiceRunning ? const Color(0xFF10B981) : const Color(0xFF6B7280),
+                    description: 'Passive location memory with zero manual input, OpenStreetMap timeline & visit clustering.',
+                    icon: LucideIcons.navigation,
+                    accentColor: const Color(0xFF3B82F6),
+                    onTap: () => onNavigate(3, 2),
                   ),
                 ],
               );

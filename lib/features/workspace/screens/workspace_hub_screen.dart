@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../../shared/widgets/category_segmented_bar.dart';
+import '../../auto_trail/providers/auto_trail_provider.dart';
+import '../../auto_trail/screens/auto_trail_screen.dart';
 import '../../notes/providers/notes_provider.dart';
 import '../../notes/screens/notes_screen.dart';
 import '../../tutorials/providers/tutorials_provider.dart';
@@ -38,6 +40,7 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
   Widget build(BuildContext context) {
     final notes = context.watch<NotesProvider>();
     final tutorials = context.watch<TutorialsProvider>();
+    final autoTrail = context.watch<AutoTrailProvider>();
 
     final tabs = [
       CategoryTabItem(
@@ -50,10 +53,18 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
         icon: LucideIcons.bookOpen,
         badgeText: tutorials.tutorials.isNotEmpty ? '${tutorials.tutorials.length}' : null,
       ),
+      CategoryTabItem(
+        title: 'Auto Trail',
+        icon: LucideIcons.navigation,
+        badgeText: autoTrail.isServiceRunning ? 'Active' : (autoTrail.points.isNotEmpty ? '${autoTrail.points.length}' : null),
+      ),
     ];
 
     Widget body;
     switch (_selectedSubIndex) {
+      case 2:
+        body = const AutoTrailScreen();
+        break;
       case 1:
         body = const TutorialsScreen();
         break;
