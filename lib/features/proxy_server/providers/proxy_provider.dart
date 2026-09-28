@@ -281,7 +281,7 @@ class ProxyServerProvider extends ChangeNotifier {
           port: _port,
         );
         if (!success) {
-          _errorMessage = 'Failed to bind proxy to $_host:$_port. Port may be in use by another service.';
+          _errorMessage = _service.lastError ?? 'Failed to bind proxy to $_host:$_port. Port may be in use by another service.';
           CrashLogService().recordManualError('ForwardProxyServer', _errorMessage!);
         } else {
           await _powerService?.acquireWakeLock('forward_proxy');
@@ -667,7 +667,7 @@ class ProxyServerProvider extends ChangeNotifier {
       CrashLogService().addBreadcrumb('TrafficDiverter', _proxyTestResult!);
     } catch (e) {
       _proxyTestResult = 'FAILED: Cannot connect to $_diverterHost:$_diverterPort ($e). Check that EveryProxy is running on Phone B and both phones are on the same hotspot.';
-      CrashLogService().recordManualError('TrafficDiverter', _proxyTestResult!);
+      CrashLogService().addBreadcrumb('TrafficDiverter', _proxyTestResult!);
     } finally {
       _isTestingProxy = false;
       notifyListeners();

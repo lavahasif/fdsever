@@ -27,6 +27,7 @@ import 'package:fdserver/features/whatsapp/providers/whatsapp_provider.dart';
 import 'package:fdserver/features/whatsapp/screens/whatsapp_screen.dart';
 import 'package:fdserver/shared/widgets/responsive_sidebar.dart';
 import 'package:fdserver/shared/widgets/app_header.dart';
+import 'package:fdserver/features/auto_trail/providers/auto_trail_provider.dart';
 import 'package:fdserver/main.dart';
 
 Widget createTestApp({
@@ -69,10 +70,16 @@ Widget createTestApp({
       ChangeNotifierProvider(
         create: (_) => ProxyServerProvider(proxyServerService, networkService, storageService),
       ),
+      ChangeNotifierProvider(create: (_) => AutoTrailProvider()),
     ],
     child: ShadApp(
       title: 'FDServer Test',
       theme: AppTheme.lightTheme(),
+      builder: (context, child) {
+        return ScaffoldMessenger(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: home ?? const MainNavigationShell(),
     ),
   );

@@ -25,7 +25,7 @@
 
     <application
         android:label="fdserver"
-        android:name="${applicationName}"
+        android:name=".FDServerApplication"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
         <activity

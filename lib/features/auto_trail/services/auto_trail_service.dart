@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_activity_recognition/flutter_activity_recognition.dart';
@@ -19,36 +20,54 @@ class AutoTrailService {
 
   /// Configures and registers the background service.
   Future<void> initialize() async {
-    await _service.configure(
-      androidConfiguration: AndroidConfiguration(
-        onStart: onStartBackgroundService,
-        autoStart: false,
-        isForegroundMode: true,
-        notificationChannelId: 'auto_trail_service',
-        initialNotificationTitle: 'Auto Trail running',
-        initialNotificationContent: 'Passive location memory active',
-        foregroundServiceNotificationId: 888,
-      ),
-      iosConfiguration: IosConfiguration(
-        onForeground: onStartBackgroundService,
-        autoStart: false,
-      ),
-    );
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      return;
+    }
+    try {
+      await _service.configure(
+        androidConfiguration: AndroidConfiguration(
+          onStart: onStartBackgroundService,
+          autoStart: false,
+          isForegroundMode: true,
+          notificationChannelId: 'auto_trail_service',
+          initialNotificationTitle: 'Auto Trail running',
+          initialNotificationContent: 'Passive location memory active',
+          foregroundServiceNotificationId: 888,
+        ),
+        iosConfiguration: IosConfiguration(
+          onForeground: onStartBackgroundService,
+          autoStart: false,
+        ),
+      );
+    } catch (_) {}
   }
 
   /// Checks if background service is currently active.
   Future<bool> isRunning() async {
-    return await _service.isRunning();
+    if (!Platform.isAndroid && !Platform.isIOS) return false;
+    try {
+      return await _service.isRunning();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Starts background passive tracking.
   Future<bool> startService() async {
-    return await _service.startService();
+    if (!Platform.isAndroid && !Platform.isIOS) return false;
+    try {
+      return await _service.startService();
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Stops background tracking.
   void stopService() {
-    _service.invoke('stopService');
+    if (!Platform.isAndroid && !Platform.isIOS) return;
+    try {
+      _service.invoke('stopService');
+    } catch (_) {}
   }
 
   /// Manually triggers a single location capture and logs it.
@@ -80,7 +99,14 @@ class AutoTrailService {
 
   /// Listens to real-time updates broadcast from background service isolate.
   Stream<Map<String, dynamic>?> onServiceUpdate() {
-    return _service.on('update');
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      return const Stream.empty();
+    }
+    try {
+      return _service.on('update');
+    } catch (_) {
+      return const Stream.empty();
+    }
   }
 
   /// Reverse geocodes coordinates to human readable address with offline fallback.
@@ -158,10 +184,12 @@ Future<void> onStartBackgroundService(ServiceInstance service) async {
   // Update notification info on Android
   void updateNotification(String statusText) {
     if (service is AndroidServiceInstance) {
-      service.setForegroundNotificationInfo(
-        title: 'Auto Trail running',
-        content: statusText,
-      );
+      try {
+        service.setForegroundNotificationInfo(
+          title: 'Auto Trail running',
+          content: statusText,
+        );
+      } catch (_) {}
     }
   }
 

@@ -44,6 +44,7 @@ class MainActivity : FlutterActivity() {
                 )
             }
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            FDServerApplication.createNotificationChannels(applicationContext)
         } catch (_: Throwable) {}
         handleIntent(intent)
     }

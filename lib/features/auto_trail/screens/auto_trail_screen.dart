@@ -307,7 +307,7 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
             onPressed: () async {
               final pt = await provider.recordCurrentLocation();
               if (context.mounted && pt != null) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                   SnackBar(
                     content: Text('Logged: ${pt.address}'),
                     duration: const Duration(seconds: 2),

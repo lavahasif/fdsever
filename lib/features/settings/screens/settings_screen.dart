@@ -437,7 +437,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onPressed: () {
                                 final prompt = crashService.generateFullDiagnosticsAiPrompt();
                                 Clipboard.setData(ClipboardData(text: prompt));
-                                ScaffoldMessenger.of(context).showSnackBar(
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                                   const SnackBar(
                                     content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
                                     backgroundColor: Color(0xFF18181B),

@@ -132,6 +132,11 @@ class FDServerApp extends StatelessWidget {
       themeMode: settingsProvider.themeMode,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
+      builder: (context, child) {
+        return ScaffoldMessenger(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const MainNavigationShell(),
     );
   }

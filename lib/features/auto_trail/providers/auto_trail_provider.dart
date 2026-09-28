@@ -172,8 +172,13 @@ class AutoTrailProvider extends ChangeNotifier {
           return;
         }
       }
-      final started = await _service.startService();
-      _isServiceRunning = started;
+      try {
+        final started = await _service.startService();
+        _isServiceRunning = started;
+      } catch (e, stack) {
+        _isServiceRunning = false;
+        notifyListeners();
+      }
     }
     notifyListeners();
   }

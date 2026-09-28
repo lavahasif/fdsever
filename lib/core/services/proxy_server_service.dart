@@ -40,8 +40,11 @@ class ProxyServerService {
   double _currentSpeedInKbps = 0.0;
   double _currentSpeedOutKbps = 0.0;
 
+  String? _lastError;
+
   // Getters
   bool get isRunning => _isRunning;
+  String? get lastError => _lastError;
   String get host => _host;
   int get port => _port;
   DateTime? get startedAt => _startedAt;
@@ -129,12 +132,23 @@ class ProxyServerService {
     _host = host;
     _port = port;
 
+    _lastError = null;
     try {
       final bindAddress = (host == '0.0.0.0')
           ? InternetAddress.anyIPv4
           : (InternetAddress.tryParse(host) ?? InternetAddress.anyIPv4);
 
-      _serverSocket = await ServerSocket.bind(bindAddress, _port, shared: true);
+      try {
+        _serverSocket = await ServerSocket.bind(bindAddress, _port, shared: true);
+      } catch (bindErr) {
+        // If binding to a specific interface IP failed (e.g. mobile carrier IP or virtual interface),
+        // fallback gracefully to all IPv4 interfaces (0.0.0.0) so requests to that IP are still served.
+        if (bindAddress != InternetAddress.anyIPv4) {
+          _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, _port, shared: true);
+        } else {
+          rethrow;
+        }
+      }
       _isRunning = true;
       _startedAt = DateTime.now();
 
@@ -179,6 +193,7 @@ class ProxyServerService {
       return true;
     } catch (e) {
       _isRunning = false;
+      _lastError = 'Failed to bind proxy on $_host:$_port: $e';
       _addLog(ProxyLogEntry(
         id: 'start_failed_${DateTime.now().millisecondsSinceEpoch}',
         timestamp: DateTime.now(),
@@ -188,7 +203,7 @@ class ProxyServerService {
         port: _port,
         clientIp: '127.0.0.1',
         statusCode: 500,
-        errorMessage: 'Failed to bind proxy on $_host:$_port: $e',
+        errorMessage: _lastError!,
       ));
       return false;
     }

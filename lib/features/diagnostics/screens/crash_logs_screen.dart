@@ -33,7 +33,8 @@ class _CrashLogsScreenState extends State<CrashLogsScreen> {
 
   void _copyToClipboard(String text, String label) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
       SnackBar(
         content: Row(
           children: [
@@ -59,7 +60,8 @@ class _CrashLogsScreenState extends State<CrashLogsScreen> {
         stack,
         {'action': 'User pressed "Test Crash Capture" button'},
       );
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         const SnackBar(
           content: Text('Simulated error captured and persisted! Tap "Copy for AI" to test.'),
           backgroundColor: Color(0xFF27272A),

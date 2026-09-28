@@ -27,6 +27,7 @@ import 'package:fdserver/features/settings/providers/settings_provider.dart';
 import 'package:fdserver/features/tutorials/providers/tutorials_provider.dart';
 import 'package:fdserver/features/web_server/providers/web_server_provider.dart';
 import 'package:fdserver/features/whatsapp/providers/whatsapp_provider.dart';
+import 'package:fdserver/features/auto_trail/providers/auto_trail_provider.dart';
 import 'package:fdserver/main.dart';
 
 Widget createMobileTestApp({
@@ -86,10 +87,16 @@ Widget createMobileTestApp({
             vpnDiverterService,
           ),
         ),
+      ChangeNotifierProvider(create: (_) => AutoTrailProvider()),
     ],
     child: ShadApp(
       title: 'FDServer UI Test',
       theme: AppTheme.lightTheme(),
+      builder: (context, child) {
+        return ScaffoldMessenger(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: home ?? const MainNavigationShell(),
     ),
   );

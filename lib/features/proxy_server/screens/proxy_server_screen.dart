@@ -456,45 +456,59 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      const Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Forward Proxy Server Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
-                      const Spacer(),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F46E5),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
-                          Clipboard.setData(ClipboardData(text: prompt));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
-                              backgroundColor: Color(0xFF18181B),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                        icon: const Icon(LucideIcons.copy, size: 12),
-                        label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
+                          SizedBox(width: 8),
+                          Text('Forward Proxy Server Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
-                          );
-                        },
-                        child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF4F46E5),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
+                              Clipboard.setData(ClipboardData(text: prompt));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                                  backgroundColor: Color(0xFF18181B),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                            icon: const Icon(LucideIcons.copy, size: 12),
+                            label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                          ),
+                          const SizedBox(width: 6),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                              );
+                            },
+                            child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1206,45 +1220,59 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      const Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Reverse Proxy Gateway Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
-                      const Spacer(),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F46E5),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
-                          Clipboard.setData(ClipboardData(text: prompt));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
-                              backgroundColor: Color(0xFF18181B),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                        icon: const Icon(LucideIcons.copy, size: 12),
-                        label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
+                          SizedBox(width: 8),
+                          Text('Reverse Proxy Gateway Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
-                          );
-                        },
-                        child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF4F46E5),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
+                              Clipboard.setData(ClipboardData(text: prompt));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                                  backgroundColor: Color(0xFF18181B),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                            icon: const Icon(LucideIcons.copy, size: 12),
+                            label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                          ),
+                          const SizedBox(width: 6),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                              );
+                            },
+                            child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1997,45 +2025,59 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      const Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
-                      const SizedBox(width: 8),
-                      const Text('Traffic Diverter Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
-                      const Spacer(),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F46E5),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
-                          Clipboard.setData(ClipboardData(text: prompt));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
-                              backgroundColor: Color(0xFF18181B),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                        icon: const Icon(LucideIcons.copy, size: 12),
-                        label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(LucideIcons.triangleAlert, color: Colors.redAccent, size: 16),
+                          SizedBox(width: 8),
+                          Text('Traffic Diverter Error', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 13)),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
-                          );
-                        },
-                        child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF4F46E5),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              final prompt = CrashLogService().generateFullDiagnosticsAiPrompt();
+                              Clipboard.setData(ClipboardData(text: prompt));
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                                const SnackBar(
+                                  content: Text('Copied full AI Diagnostic report to clipboard! Ready to paste into AI.'),
+                                  backgroundColor: Color(0xFF18181B),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            },
+                            icon: const Icon(LucideIcons.copy, size: 12),
+                            label: const Text('Copy for AI', style: TextStyle(fontSize: 11)),
+                          ),
+                          const SizedBox(width: 6),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const CrashLogsScreen()),
+                              );
+                            },
+                            child: const Text('Logs', style: TextStyle(fontSize: 11)),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -2388,7 +2430,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final isCompact = constraints.maxWidth < 500;
+          final isCompact = constraints.maxWidth < 620;
 
           final content = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2665,9 +2707,12 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                         children: [
                           const Icon(LucideIcons.checkCheck, color: Color(0xFF10B981), size: 14),
                           const SizedBox(width: 6),
-                          Text(
-                            'Phone B: ${proxy.lastDiscoveredProxy!.ip}:${proxy.lastDiscoveredProxy!.port} (${proxy.lastDiscoveredProxy!.protocol} · ${proxy.lastDiscoveredProxy!.latencyMs}ms) · Tap to connect',
-                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                          Flexible(
+                            child: Text(
+                              'Phone B: ${proxy.lastDiscoveredProxy!.ip}:${proxy.lastDiscoveredProxy!.port} (${proxy.lastDiscoveredProxy!.protocol} · ${proxy.lastDiscoveredProxy!.latencyMs}ms) · Tap to connect',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
                       ),
@@ -2783,7 +2828,7 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final isNarrow = constraints.maxWidth < 450;
+          final isNarrow = constraints.maxWidth < 620;
 
           final isVpnEnabled = proxy.diverterUseVpn;
 
@@ -3644,7 +3689,8 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     InkWell(
                       onTap: () {
                         Clipboard.setData(ClipboardData(text: proxy.diverterHost));
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                           SnackBar(
                             content: Text('Host ${proxy.diverterHost} copied to clipboard'),
                             duration: const Duration(seconds: 2),
@@ -3675,7 +3721,8 @@ class _ProxyServerScreenState extends State<ProxyServerScreen> with SingleTicker
                     InkWell(
                       onTap: () {
                         Clipboard.setData(ClipboardData(text: '${proxy.diverterPort}'));
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
                           SnackBar(
                             content: Text('Port ${proxy.diverterPort} copied to clipboard'),
                             duration: const Duration(seconds: 2),

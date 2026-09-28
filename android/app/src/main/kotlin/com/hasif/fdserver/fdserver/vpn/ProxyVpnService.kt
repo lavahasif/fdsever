@@ -1437,6 +1437,7 @@ class ProxyVpnService : VpnService() {
     }
 
     private fun createNotification(): Notification {
+        createNotificationChannel()
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, launchIntent,
@@ -1450,10 +1451,17 @@ class ProxyVpnService : VpnService() {
             Notification.Builder(this)
         }
 
+        val appIcon = try {
+            val info = packageManager.getApplicationInfo(packageName, 0)
+            if (info.icon != 0) info.icon else android.R.drawable.ic_dialog_info
+        } catch (_: Throwable) {
+            android.R.drawable.ic_dialog_info
+        }
+
         return builder
             .setContentTitle("FDServer Proxy Diverter Active")
             .setContentText("Diverting all device traffic to $targetHost:$targetPort ($targetProtocol)")
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(appIcon)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
