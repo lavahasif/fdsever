@@ -164,6 +164,45 @@ void main() {
       expect(service.isRandomPrayerEnabled, true);
       expect(service.isAlwaysShowDhikrEnabled, false);
     });
+
+    test('Bulk JSON import parses markdown fences and diverse schemas', () async {
+      final service = PrayerDhikrService();
+      await service.init();
+
+      const rawJsonWithMarkdown = '''
+```json
+[
+  {
+    "arabic": "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ",
+    "transliteration": "SubhanAllahi wa bihamdihi",
+    "translation": "Glory be to Allah and His praise",
+    "virtue": "100 times daily",
+    "targetCount": 100
+  },
+  {
+    "ar": "اللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ",
+    "trans": "Allahumma salli 'ala Muhammad",
+    "meaning": "Blessings upon the Prophet",
+    "target": 10
+  }
+]
+```
+''';
+
+      final initialCount = service.dhikrItems.length;
+      final parsedCount = await service.importDhikrFromJson(rawJsonWithMarkdown);
+      expect(parsedCount, 2);
+      expect(service.dhikrItems.length, initialCount + 2);
+
+      final importedFirst = service.dhikrItems.first;
+      expect(importedFirst.isCustom, true);
+      expect(importedFirst.targetCount, 100);
+      expect(importedFirst.transliteration, "SubhanAllahi wa bihamdihi");
+
+      final importedSecond = service.dhikrItems[1];
+      expect(importedSecond.targetCount, 10);
+      expect(importedSecond.transliteration, "Allahumma salli 'ala Muhammad");
+    });
   });
 
   group('FocusGuardProvider Integration with Prayer Diversion', () {

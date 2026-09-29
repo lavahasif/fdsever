@@ -272,4 +272,136 @@ class PrayerDhikrService extends ChangeNotifier {
     final jsonList = _dhikrItems.map((e) => e.toJson()).toList();
     await prefs.setString(_keyDhikrItems, jsonEncode(jsonList));
   }
+
+  // ─── AI Bulk JSON Import Engine ──────────────────────────────────────────
+
+  static const String aiJsonPromptTemplate = '''
+Generate a JSON array of Islamic Dhikr remembrances using this schema:
+[
+  {
+    "arabic": "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ",
+    "transliteration": "SubhanAllahi wa bihamdihi",
+    "translation": "Glory be to Allah and His praise",
+    "virtue": "100 times daily forgives sins even if like the foam of the sea",
+    "targetCount": 100
+  },
+  {
+    "arabic": "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ",
+    "transliteration": "Allahumma Anta Rabbi la ilaha illa Anta",
+    "translation": "O Allah, You are my Lord, there is no deity worthy of worship except You",
+    "virtue": "Sayyid al-Istighfar (Chief of repentance)",
+    "targetCount": 1
+  }
+]
+Output ONLY valid JSON.
+''';
+
+  static const String sampleDhikrJson = '''[
+  {
+    "arabic": "سُبْحَانَ اللَّهِ وَبِحَمْدِهِ",
+    "transliteration": "SubhanAllahi wa bihamdihi",
+    "translation": "Glory be to Allah and His praise",
+    "virtue": "Recited 100 times daily forgives sins even if like the foam of the sea",
+    "targetCount": 100
+  },
+  {
+    "arabic": "اللَّهُمَّ صَلِّ عَلَى سَيِّدِنَا مُحَمَّدٍ",
+    "transliteration": "Allahumma salli 'ala sayyidina Muhammad",
+    "translation": "O Allah, send blessings upon our Master Muhammad",
+    "virtue": "Whoever sends blessings once, Allah sends blessings tenfold",
+    "targetCount": 100
+  },
+  {
+    "arabic": "لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ",
+    "transliteration": "La hawla wa la quwwata illa billahil-'Aliyyil-'Azeem",
+    "translation": "There is no power nor strength except with Allah, the Most High, the Most Great",
+    "virtue": "A treasure from beneath the Throne of Allah",
+    "targetCount": 33
+  }
+]''';
+
+  List<DhikrItem> parseDhikrsFromJsonString(String raw) {
+    var cleaned = raw.trim();
+    if (cleaned.isEmpty) return [];
+
+    // Strip markdown code blocks if AI output was wrapped in ```json ... ```
+    if (cleaned.startsWith('```')) {
+      final firstLineEnd = cleaned.indexOf('\n');
+      if (firstLineEnd != -1) {
+        cleaned = cleaned.substring(firstLineEnd + 1);
+      }
+      if (cleaned.endsWith('```')) {
+        cleaned = cleaned.substring(0, cleaned.length - 3);
+      }
+      cleaned = cleaned.trim();
+    }
+
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(cleaned);
+    } catch (_) {
+      return [];
+    }
+
+    List<dynamic> list = [];
+    if (decoded is List) {
+      list = decoded;
+    } else if (decoded is Map) {
+      if (decoded['dhikr'] is List) {
+        list = decoded['dhikr'] as List;
+      } else if (decoded['items'] is List) {
+        list = decoded['items'] as List;
+      } else if (decoded['data'] is List) {
+        list = decoded['data'] as List;
+      } else {
+        list = [decoded];
+      }
+    }
+
+    final result = <DhikrItem>[];
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    for (int i = 0; i < list.length; i++) {
+      final rawItem = list[i];
+      if (rawItem is! Map) continue;
+      final map = Map<String, dynamic>.from(rawItem);
+
+      final arabic = (map['arabic'] ?? map['ar'] ?? map['arabicText'] ?? map['text'] ?? '').toString().trim();
+      final transliteration = (map['transliteration'] ?? map['trans'] ?? map['title'] ?? map['name'] ?? map['latin'] ?? '').toString().trim();
+      final translation = (map['translation'] ?? map['meaning'] ?? map['english'] ?? map['en'] ?? '').toString().trim();
+      final virtue = (map['virtue'] ?? map['benefit'] ?? map['reward'] ?? map['note'] ?? map['description'] ?? '').toString().trim();
+      final targetStr = map['targetCount'] ?? map['target'] ?? map['count'] ?? map['repeat'] ?? '33';
+      final targetCount = int.tryParse(targetStr.toString()) ?? 33;
+
+      if (arabic.isEmpty && transliteration.isEmpty && translation.isEmpty) {
+        continue;
+      }
+
+      result.add(
+        DhikrItem(
+          id: 'dhikr_imported_${timestamp}_$i',
+          arabic: arabic.isNotEmpty ? arabic : transliteration,
+          transliteration: transliteration.isNotEmpty ? transliteration : arabic,
+          translation: translation,
+          virtue: virtue,
+          targetCount: targetCount > 0 ? targetCount : 33,
+          currentCount: 0,
+          completedCycles: 0,
+          isCustom: true,
+          createdAt: DateTime.now(),
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  Future<int> importDhikrFromJson(String rawJson) async {
+    final parsed = parseDhikrsFromJsonString(rawJson);
+    if (parsed.isEmpty) return 0;
+
+    _dhikrItems.insertAll(0, parsed);
+    await _saveDhikrItems();
+    notifyListeners();
+    return parsed.length;
+  }
 }

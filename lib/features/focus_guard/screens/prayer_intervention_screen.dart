@@ -177,91 +177,392 @@ class _PrayerInterventionScreenState extends State<PrayerInterventionScreen>
     );
   }
 
-  void _showAddDhikrDialog(BuildContext context) {
+  void _showAddDhikrDialog(BuildContext context, {int initialTab = 0}) {
     final arabicCtrl = TextEditingController();
     final transliterationCtrl = TextEditingController();
     final translationCtrl = TextEditingController();
     final virtueCtrl = TextEditingController();
     final countCtrl = TextEditingController(text: '33');
+    final jsonCtrl = TextEditingController();
+    int currentTab = initialTab;
 
     showShadDialog(
       context: context,
-      builder: (ctx) => ShadDialog(
-        title: const Text('Add Custom Dhikr'),
-        description: const Text(
-          'Register a new remembrance (Adhkar) to your digital Tasbih counter.',
-        ),
-        actions: [
-          ShadButton.outline(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ShadButton(
-            onPressed: () async {
-              if (transliterationCtrl.text.trim().isEmpty) return;
-              final target = int.tryParse(countCtrl.text.trim()) ?? 33;
-              await _prayerService.addDhikrItem(
-                arabic: arabicCtrl.text.trim(),
-                transliteration: transliterationCtrl.text.trim(),
-                translation: translationCtrl.text.trim(),
-                virtue: virtueCtrl.text.trim(),
-                targetCount: target,
-              );
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-                ShadToaster.of(context).show(
-                  const ShadToast(
-                    title: Text('Dhikr Added'),
-                    description: Text('New Dhikr is ready on your Tasbih.'),
-                  ),
-                );
-              }
-              setState(() {});
-            },
-            child: const Text('Add Dhikr'),
-          ),
-        ],
-        child: SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final parsedItems = _prayerService.parseDhikrsFromJsonString(jsonCtrl.text);
+
+          return ShadDialog(
+            title: Row(
               children: [
-                _inputLabel('Arabic Remembrance'),
-                ShadInput(
-                  controller: arabicCtrl,
-                  placeholder: const Text('سُبْحَانَ اللَّهِ...'),
-                  textAlign: TextAlign.right,
+                Icon(
+                  currentTab == 0 ? LucideIcons.penLine : LucideIcons.fileJson,
+                  size: 18,
+                  color: const Color(0xFF10B981),
                 ),
-                const SizedBox(height: 10),
-                _inputLabel('Transliteration *'),
-                ShadInput(
-                  controller: transliterationCtrl,
-                  placeholder: const Text('e.g. SubhanAllah wa bihamdihi'),
-                ),
-                const SizedBox(height: 10),
-                _inputLabel('English Translation'),
-                ShadInput(
-                  controller: translationCtrl,
-                  placeholder: const Text('Glory be to Allah and His praise'),
-                ),
-                const SizedBox(height: 10),
-                _inputLabel('Virtue / Blessing (optional)'),
-                ShadInput(
-                  controller: virtueCtrl,
-                  placeholder: const Text('e.g. 100 times forgives minor sins'),
-                ),
-                const SizedBox(height: 10),
-                _inputLabel('Target Count per Cycle (e.g. 33, 100, 10)'),
-                ShadInput(
-                  controller: countCtrl,
-                  keyboardType: TextInputType.number,
-                ),
+                const SizedBox(width: 8),
+                Text(currentTab == 0 ? 'Add Custom Dhikr' : 'Bulk Import Dhikrs via JSON'),
               ],
             ),
-          ),
-        ),
+            description: Text(
+              currentTab == 0
+                  ? 'Manually fill the fields below to add a single remembrance.'
+                  : 'Paste an AI-generated JSON array from ChatGPT, Gemini, or Claude.',
+            ),
+            actions: [
+              ShadButton.outline(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Cancel'),
+              ),
+              if (currentTab == 0)
+                ShadButton(
+                  onPressed: () async {
+                    if (transliterationCtrl.text.trim().isEmpty) return;
+                    final target = int.tryParse(countCtrl.text.trim()) ?? 33;
+                    await _prayerService.addDhikrItem(
+                      arabic: arabicCtrl.text.trim(),
+                      transliteration: transliterationCtrl.text.trim(),
+                      translation: translationCtrl.text.trim(),
+                      virtue: virtueCtrl.text.trim(),
+                      targetCount: target,
+                    );
+                    if (ctx.mounted) {
+                      Navigator.of(ctx).pop();
+                      ShadToaster.of(context).show(
+                        const ShadToast(
+                          title: Text('Dhikr Added'),
+                          description: Text('New Dhikr is ready on your Tasbih.'),
+                        ),
+                      );
+                    }
+                    setState(() {});
+                  },
+                  child: const Text('Add Dhikr'),
+                )
+              else
+                ShadButton(
+                  enabled: parsedItems.isNotEmpty,
+                  onPressed: () async {
+                    if (parsedItems.isEmpty) return;
+                    final count = await _prayerService.importDhikrFromJson(jsonCtrl.text);
+                    if (ctx.mounted) {
+                      Navigator.of(ctx).pop();
+                      ShadToaster.of(context).show(
+                        ShadToast(
+                          title: const Text('Bulk Dhikrs Imported'),
+                          description: Text('Successfully added $count Dhikrs from JSON!'),
+                        ),
+                      );
+                    }
+                    setState(() {});
+                  },
+                  child: Text('Import All (${parsedItems.length})'),
+                ),
+            ],
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 500),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Segmented mode switcher
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F1E1B),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF163E33)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setDialogState(() => currentTab = 0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: currentTab == 0 ? const Color(0xFF10B981) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(LucideIcons.penLine, size: 14, color: currentTab == 0 ? Colors.black : Colors.white),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Manual Form',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: currentTab == 0 ? Colors.black : Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setDialogState(() => currentTab = 1),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: currentTab == 1 ? const Color(0xFF10B981) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(LucideIcons.fileJson, size: 14, color: currentTab == 1 ? Colors.black : Colors.white),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Bulk JSON (AI)',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: currentTab == 1 ? Colors.black : Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    if (currentTab == 0) ...[
+                      // Manual Form
+                      _inputLabel('Arabic Remembrance'),
+                      ShadInput(
+                        controller: arabicCtrl,
+                        placeholder: const Text('سُبْحَانَ اللَّهِ...'),
+                        textAlign: TextAlign.right,
+                      ),
+                      const SizedBox(height: 10),
+                      _inputLabel('Transliteration *'),
+                      ShadInput(
+                        controller: transliterationCtrl,
+                        placeholder: const Text('e.g. SubhanAllah wa bihamdihi'),
+                      ),
+                      const SizedBox(height: 10),
+                      _inputLabel('English Translation'),
+                      ShadInput(
+                        controller: translationCtrl,
+                        placeholder: const Text('Glory be to Allah and His praise'),
+                      ),
+                      const SizedBox(height: 10),
+                      _inputLabel('Virtue / Blessing (optional)'),
+                      ShadInput(
+                        controller: virtueCtrl,
+                        placeholder: const Text('e.g. 100 times forgives minor sins'),
+                      ),
+                      const SizedBox(height: 10),
+                      _inputLabel('Target Count per Cycle (e.g. 33, 100, 10)'),
+                      ShadInput(
+                        controller: countCtrl,
+                        keyboardType: TextInputType.number,
+                      ),
+                    ] else ...[
+                      // Bulk JSON Import
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFFBBF24),
+                              side: const BorderSide(color: Color(0xFFF59E0B)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () {
+                              Clipboard.setData(
+                                const ClipboardData(text: PrayerDhikrService.aiJsonPromptTemplate),
+                              );
+                              ShadToaster.of(context).show(
+                                const ShadToast(
+                                  title: Text('AI Prompt Copied!'),
+                                  description: Text('Paste into ChatGPT or Gemini to get formatted JSON.'),
+                                ),
+                              );
+                            },
+                            icon: const Icon(LucideIcons.copy, size: 12),
+                            label: const Text('Copy AI Prompt', style: TextStyle(fontSize: 11)),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF34D399),
+                              side: const BorderSide(color: Color(0xFF10B981)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () {
+                              setDialogState(() {
+                                jsonCtrl.text = PrayerDhikrService.sampleDhikrJson;
+                              });
+                            },
+                            icon: const Icon(LucideIcons.sparkles, size: 12),
+                            label: const Text('Insert Sample JSON', style: TextStyle(fontSize: 11)),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFA1A1AA),
+                              side: const BorderSide(color: Color(0xFF3F3F46)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            onPressed: () async {
+                              final data = await Clipboard.getData(Clipboard.kTextPlain);
+                              if (data?.text != null && data!.text!.isNotEmpty) {
+                                setDialogState(() {
+                                  jsonCtrl.text = data.text!;
+                                });
+                              }
+                            },
+                            icon: const Icon(LucideIcons.clipboardPaste, size: 12),
+                            label: const Text('Paste Clipboard', style: TextStyle(fontSize: 11)),
+                          ),
+                          if (jsonCtrl.text.isNotEmpty)
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: const Color(0xFFEF4444),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              ),
+                              onPressed: () => setDialogState(() => jsonCtrl.clear()),
+                              child: const Text('Clear', style: TextStyle(fontSize: 11)),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _inputLabel('JSON Array Input'),
+                      TextField(
+                        controller: jsonCtrl,
+                        maxLines: 7,
+                        minLines: 5,
+                        style: const TextStyle(
+                          color: Color(0xFFE2E8F0),
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '[\n  {\n    "arabic": "سُبْحَانَ اللَّهِ",\n    "transliteration": "SubhanAllah",\n    "translation": "Glory be to Allah",\n    "targetCount": 33\n  }\n]',
+                          hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 11),
+                          filled: true,
+                          fillColor: const Color(0xFF071411),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF163E33)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: Color(0xFF10B981)),
+                          ),
+                        ),
+                        onChanged: (_) => setDialogState(() {}),
+                      ),
+                      const SizedBox(height: 10),
+                      // Live validation status & preview
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: parsedItems.isNotEmpty
+                              ? const Color(0xFF064E3B).withValues(alpha: 0.3)
+                              : (jsonCtrl.text.trim().isEmpty
+                                  ? const Color(0xFF1E293B).withValues(alpha: 0.3)
+                                  : const Color(0xFF7F1D1D).withValues(alpha: 0.3)),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: parsedItems.isNotEmpty
+                                ? const Color(0xFF10B981)
+                                : (jsonCtrl.text.trim().isEmpty
+                                    ? const Color(0xFF334155)
+                                    : const Color(0xFFEF4444)),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  parsedItems.isNotEmpty
+                                      ? LucideIcons.checkCircle2
+                                      : (jsonCtrl.text.trim().isEmpty
+                                          ? LucideIcons.info
+                                          : LucideIcons.alertTriangle),
+                                  size: 14,
+                                  color: parsedItems.isNotEmpty
+                                      ? const Color(0xFF34D399)
+                                      : (jsonCtrl.text.trim().isEmpty
+                                          ? const Color(0xFF94A3B8)
+                                          : const Color(0xFFF87171)),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    parsedItems.isNotEmpty
+                                        ? 'Parsed ${parsedItems.length} Dhikr items successfully'
+                                        : (jsonCtrl.text.trim().isEmpty
+                                            ? 'Paste or insert sample JSON to preview'
+                                            : 'No valid Dhikr objects recognized in JSON'),
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: parsedItems.isNotEmpty
+                                          ? const Color(0xFF34D399)
+                                          : (jsonCtrl.text.trim().isEmpty
+                                              ? const Color(0xFF94A3B8)
+                                              : const Color(0xFFF87171)),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (parsedItems.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 4,
+                                runSpacing: 4,
+                                children: parsedItems.take(5).map((e) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF065F46),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      '${e.transliteration} (${e.targetCount}x)',
+                                      style: const TextStyle(fontSize: 10, color: Colors.white),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              if (parsedItems.length > 5) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  '+ ${parsedItems.length - 5} more items...',
+                                  style: const TextStyle(fontSize: 10, color: Color(0xFFA7F3D0)),
+                                ),
+                              ],
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -847,7 +1148,7 @@ class _PrayerInterventionScreenState extends State<PrayerInterventionScreen>
             height: 38,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: dhikrItems.length + 1,
+              itemCount: dhikrItems.length + 2,
               separatorBuilder: (context, index) => const SizedBox(width: 8),
               itemBuilder: (context, idx) {
                 if (idx == dhikrItems.length) {
@@ -857,12 +1158,27 @@ class _PrayerInterventionScreenState extends State<PrayerInterventionScreen>
                     label: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(LucideIcons.plus, size: 12, color: Color(0xFF34D399)),
+                        Icon(LucideIcons.penLine, size: 12, color: Color(0xFF34D399)),
                         SizedBox(width: 4),
-                        Text('Add Dhikr', style: TextStyle(fontSize: 11, color: Color(0xFF34D399))),
+                        Text('Manual Dhikr', style: TextStyle(fontSize: 11, color: Color(0xFF34D399))),
                       ],
                     ),
-                    onPressed: () => _showAddDhikrDialog(context),
+                    onPressed: () => _showAddDhikrDialog(context, initialTab: 0),
+                  );
+                }
+                if (idx == dhikrItems.length + 1) {
+                  return ActionChip(
+                    backgroundColor: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                    side: const BorderSide(color: Color(0xFFA78BFA)),
+                    label: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(LucideIcons.fileJson, size: 12, color: Color(0xFFA78BFA)),
+                        SizedBox(width: 4),
+                        Text('⚡ Bulk JSON', style: TextStyle(fontSize: 11, color: Color(0xFFA78BFA))),
+                      ],
+                    ),
+                    onPressed: () => _showAddDhikrDialog(context, initialTab: 1),
                   );
                 }
 
