@@ -10,9 +10,11 @@ import '../models/focus_config_model.dart';
 import '../models/focus_schedule.dart';
 import '../screens/mindful_friction_screen.dart';
 import '../screens/motivation_reader_screen.dart';
+import '../screens/prayer_intervention_screen.dart';
 import '../screens/reality_check_screen.dart';
 import '../services/focus_analytics_service.dart';
 import '../services/focus_guard_bridge.dart';
+import '../services/prayer_dhikr_service.dart';
 
 class InterventionAlert {
   final String packageName;
@@ -41,8 +43,9 @@ class FocusGuardProvider extends ChangeNotifier {
   bool _isLockActive = false;
   bool _blockShortsAndReels = true;
   int _hourlyBudgetMinutes = 5; // 0 (strict), 5m, 10m allowed per hour
-  String _diversionType = 'mindful_friction'; // 'mindful_friction' | 'pdf' | 'video' | 'reality_screen'
+  String _diversionType = 'mindful_friction'; // 'mindful_friction' | 'prayer' | 'pdf' | 'video' | 'reality_screen'
   bool _autoDivertEnabled = true;
+  final PrayerDhikrService _prayerDhikrService = PrayerDhikrService();
   String _targetGoal = 'Build great software & achieve financial freedom';
   int _sessionDurationMinutes = 25;
   int _remainingSeconds = 0;
@@ -207,6 +210,7 @@ class FocusGuardProvider extends ChangeNotifier {
     FocusGuardBridge.addInterventionListener(_handleIntervention);
 
     await _loadPreferences();
+    await _prayerDhikrService.init();
     await checkPermissions();
     await syncConfigToNative();
     _checkActiveSession();
@@ -258,7 +262,19 @@ class FocusGuardProvider extends ChangeNotifier {
     _isDiversionActive = true;
 
     try {
-      if (_diversionType == 'mindful_friction') {
+      if (_diversionType == 'prayer') {
+        final nav = appNavigatorKey.currentState;
+        if (nav != null) {
+          await nav.push(
+            smoothTransitionRoute(
+              PrayerInterventionScreen(
+                blockedPackage: packageName,
+                blockReason: reason,
+              ),
+            ),
+          );
+        }
+      } else if (_diversionType == 'mindful_friction') {
         final nav = appNavigatorKey.currentState;
         if (nav != null) {
           await nav.push(
@@ -385,6 +401,20 @@ class FocusGuardProvider extends ChangeNotifier {
     _diversionType = type;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyDiversionType, type);
+    notifyListeners();
+  }
+
+  PrayerDhikrService get prayerDhikrService => _prayerDhikrService;
+  bool get prayerRandomSelection => _prayerDhikrService.isRandomPrayerEnabled;
+  bool get prayerAlwaysShowDhikr => _prayerDhikrService.isAlwaysShowDhikrEnabled;
+
+  Future<void> setPrayerRandomSelection(bool enabled) async {
+    await _prayerDhikrService.setRandomPrayerEnabled(enabled);
+    notifyListeners();
+  }
+
+  Future<void> setPrayerAlwaysShowDhikr(bool enabled) async {
+    await _prayerDhikrService.setAlwaysShowDhikrEnabled(enabled);
     notifyListeners();
   }
 

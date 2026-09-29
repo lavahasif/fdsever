@@ -8,6 +8,7 @@ import '../services/focus_guard_bridge.dart';
 import '../widgets/focus_analytics_view.dart';
 import 'app_blacklist_screen.dart';
 import 'motivation_reader_screen.dart';
+import 'prayer_intervention_screen.dart';
 import 'reality_check_screen.dart';
 
 class FocusGuardHubScreen extends StatefulWidget {
@@ -98,20 +99,31 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
     final provider = context.watch<FocusGuardProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Fallback push of Reality Check screen if an intervention was triggered and auto-divert is disabled
+    // Fallback push of intervention screen if an intervention was triggered and auto-divert is disabled
     if (provider.pendingIntervention != null && !provider.autoDivertEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final alert = provider.pendingIntervention;
         if (alert != null) {
           provider.clearPendingIntervention();
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => RealityCheckScreen(
-                blockedPackage: alert.packageName,
-                blockReason: alert.reason,
+          if (provider.diversionType == 'prayer') {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => PrayerInterventionScreen(
+                  blockedPackage: alert.packageName,
+                  blockReason: alert.reason,
+                ),
               ),
-            ),
-          );
+            );
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => RealityCheckScreen(
+                  blockedPackage: alert.packageName,
+                  blockReason: alert.reason,
+                ),
+              ),
+            );
+          }
         }
       });
     }
@@ -829,7 +841,7 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
                   ),
                   Switch.adaptive(
                     value: schedule.isEnabled,
-                    activeColor: const Color(0xFF10B981),
+                    activeTrackColor: const Color(0xFF10B981),
                     onChanged: (_) => provider.toggleSchedule(schedule.id),
                   ),
                 ],
@@ -1000,7 +1012,7 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
               ),
               Switch.adaptive(
                 value: provider.autoDivertEnabled,
-                activeColor: const Color(0xFF8B5CF6),
+                activeTrackColor: const Color(0xFF8B5CF6),
                 onChanged: (val) => provider.setAutoDivertEnabled(val),
               ),
             ],
@@ -1016,7 +1028,15 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
               children: [
                 Row(
                   children: [
-                    _buildDiversionOption(provider, 'mindful_friction', '🧘 10s Breath Delay', 'Dopamine Breaker (Recommended)'),
+                    _buildDiversionOption(provider, 'prayer', '🕌 Prayer & Dhikr', 'Spiritual Reset & Notes'),
+                    const SizedBox(width: 8),
+                    _buildDiversionOption(provider, 'mindful_friction', '🧘 10s Breath Delay', 'Dopamine Breaker'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _buildDiversionOption(provider, 'reality_screen', '🛡️ Reality Check', 'Harsh Truth & Math'),
                     const SizedBox(width: 8),
                     _buildDiversionOption(provider, 'pdf', '📖 Mindset Guide', 'Deep Work & Stoic'),
                   ],
@@ -1025,12 +1045,128 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
                 Row(
                   children: [
                     _buildDiversionOption(provider, 'video', '🎬 Video Boost', 'High-Energy Pep'),
-                    const SizedBox(width: 8),
-                    _buildDiversionOption(provider, 'reality_screen', '🛡️ Reality Check', 'Harsh Truth & Math'),
                   ],
                 ),
               ],
             ),
+            if (provider.diversionType == 'prayer') ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF06231C), Color(0xFF0F1E1B)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(LucideIcons.sparkles, color: Color(0xFF34D399), size: 16),
+                        SizedBox(width: 8),
+                        Text(
+                          'Prayer & Dhikr Configuration',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFF0FDF4),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // Random Prayer Toggle
+                    Row(
+                      children: [
+                        const Icon(LucideIcons.shuffle, size: 16, color: Color(0xFFF59E0B)),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Randomly Pick Prayer / Dua',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              Text(
+                                'Show random authentic prayer note when blocked app opens',
+                                style: TextStyle(fontSize: 10, color: Color(0xFFA1A1AA)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: provider.prayerRandomSelection,
+                          activeTrackColor: const Color(0xFF10B981),
+                          onChanged: (val) => provider.setPrayerRandomSelection(val),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Color(0xFF1B4338), height: 16),
+                    // Always show Dhikr Toggle
+                    Row(
+                      children: [
+                        const Icon(LucideIcons.circleDot, size: 16, color: Color(0xFF10B981)),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Always Show Dhikr First',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                              ),
+                              Text(
+                                'Direct to interactive digital Tasbih counter on intervention',
+                                style: TextStyle(fontSize: 10, color: Color(0xFFA1A1AA)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: provider.prayerAlwaysShowDhikr,
+                          activeTrackColor: const Color(0xFF10B981),
+                          onChanged: (val) => provider.setPrayerAlwaysShowDhikr(val),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF34D399),
+                              side: const BorderSide(color: Color(0xFF10B981)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const PrayerInterventionScreen(
+                                    blockReason: 'Manual Preview',
+                                    blockedPackage: 'Test App',
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(LucideIcons.eye, size: 14),
+                            label: const Text('Preview Prayer Screen', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ],
       ),
