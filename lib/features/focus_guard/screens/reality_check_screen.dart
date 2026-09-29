@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/focus_config_model.dart';
 import '../providers/focus_guard_provider.dart';
+import '../services/motivation_quote_service.dart';
 import 'motivation_reader_screen.dart';
 
 class RealityCheckScreen extends StatefulWidget {
@@ -28,12 +29,28 @@ class _RealityCheckScreenState extends State<RealityCheckScreen> {
   int _activeUnlockTab = 0; // 0: Math, 1: Oath
   String? _errorMessage;
   late RealityQuote _currentQuote;
+  String? _apiQuoteText;
+  String? _apiQuoteAuthor;
+  bool _isQuoteRefreshing = false;
 
   @override
   void initState() {
     super.initState();
     final quotes = RealityQuote.curatedQuotes;
     _currentQuote = quotes[DateTime.now().second % quotes.length];
+    _fetchLiveQuote();
+  }
+
+  Future<void> _fetchLiveQuote({bool forceRefresh = false}) async {
+    setState(() => _isQuoteRefreshing = true);
+    final q = await MotivationQuoteService.getInspirationalQuote(forceRefresh: forceRefresh);
+    if (mounted) {
+      setState(() {
+        _apiQuoteText = q.text;
+        _apiQuoteAuthor = q.author;
+        _isQuoteRefreshing = false;
+      });
+    }
   }
 
   @override
@@ -180,19 +197,58 @@ class _RealityCheckScreenState extends State<RealityCheckScreen> {
                 ),
                 child: Column(
                   children: [
-                    Text(
-                      '"${_currentQuote.quote}"',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontStyle: FontStyle.italic,
-                        height: 1.4,
-                        color: Color(0xFFE4E4E7),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(LucideIcons.sparkles, color: Color(0xFFEF4444), size: 14),
+                            SizedBox(width: 6),
+                            Text(
+                              'REALITY WAKE-UP',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.8,
+                                color: Color(0xFFEF4444),
+                              ),
+                            ),
+                          ],
+                        ),
+                        InkWell(
+                          onTap: _isQuoteRefreshing ? null : () => _fetchLiveQuote(forceRefresh: true),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: _isQuoteRefreshing
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFEF4444)),
+                                  )
+                                : const Icon(LucideIcons.refreshCw, size: 14, color: Color(0xFFA1A1AA)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: Text(
+                        '"${_apiQuoteText ?? _currentQuote.quote}"',
+                        key: ValueKey<String>(_apiQuoteText ?? _currentQuote.quote),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontStyle: FontStyle.italic,
+                          height: 1.4,
+                          color: Color(0xFFE4E4E7),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '— ${_currentQuote.author}',
+                      '— ${_apiQuoteAuthor ?? _currentQuote.author}',
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

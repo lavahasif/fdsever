@@ -497,11 +497,18 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private fun removeInterventionOverlay() {
         try {
-            if (overlayView != null) {
-                val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-                wm?.removeView(overlayView)
-                overlayView = null
-            }
+            val v = overlayView ?: return
+            overlayView = null
+            v.animate()
+                .alpha(0f)
+                .setDuration(160)
+                .withEndAction {
+                    try {
+                        val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                        wm?.removeView(v)
+                    } catch (_: Exception) {}
+                }
+                .start()
         } catch (e: Exception) {
             Log.e(TAG, "Error removing intervention overlay: ${e.message}")
         }
@@ -522,6 +529,7 @@ class FocusAccessibilityService : AccessibilityService() {
             setBackgroundColor(Color.parseColor("#F209090B")) // Opaque dark overlay
             setPadding(dpToPx(24), dpToPx(24), dpToPx(24), dpToPx(24))
             setOnTouchListener { _, _ -> true } // Consume all touches so blocked app cannot be interacted with
+            alpha = 0f
         }
 
         val card = LinearLayout(this).apply {
@@ -538,6 +546,8 @@ class FocusAccessibilityService : AccessibilityService() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
+            alpha = 0f
+            translationY = dpToPx(30).toFloat()
         }
 
         val badge = TextView(this).apply {
@@ -574,8 +584,19 @@ class FocusAccessibilityService : AccessibilityService() {
         }
         card.addView(desc)
 
+        // Read live or cached motivational quote
+        var quoteText = "\"Your future is created by what you do today, not what you scroll.\"\n— Focus Anchor"
+        try {
+            val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val cachedQ = flutterPrefs.getString("flutter.focus_guard_quote_text", null)
+            val cachedA = flutterPrefs.getString("flutter.focus_guard_quote_author", null)
+            if (!cachedQ.isNullOrBlank()) {
+                quoteText = "\"$cachedQ\"" + if (!cachedA.isNullOrBlank()) "\n— $cachedA" else ""
+            }
+        } catch (_: Exception) {}
+
         val quote = TextView(this).apply {
-            text = "\"Your future is created by what you do today, not what you scroll.\""
+            text = quoteText
             setTextColor(Color.parseColor("#CBD5E1"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTypeface(typeface, Typeface.ITALIC)
@@ -670,6 +691,16 @@ class FocusAccessibilityService : AccessibilityService() {
         card.addView(btnHome)
 
         root.addView(card)
+
+        // Smooth fluid entry transition (avoids abrupt pop/flash)
+        root.animate().alpha(1f).setDuration(220).start()
+        card.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(300)
+            .setInterpolator(android.view.animation.DecelerateInterpolator())
+            .start()
+
         return root
     }
 

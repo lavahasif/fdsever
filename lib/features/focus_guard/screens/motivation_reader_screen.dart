@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/motivation_quote_service.dart';
+
 class MotivationReaderScreen extends StatefulWidget {
   final String? reason;
   final String? blockedPackage;
@@ -21,6 +23,25 @@ class MotivationReaderScreen extends StatefulWidget {
 class _MotivationReaderScreenState extends State<MotivationReaderScreen> {
   String? _selectedLocalPdfName;
   String? _selectedLocalPdfPath;
+  MotivationQuote? _quote;
+  bool _isLoadingQuote = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadQuote();
+  }
+
+  Future<void> _loadQuote({bool forceRefresh = false}) async {
+    setState(() => _isLoadingQuote = true);
+    final q = await MotivationQuoteService.getInspirationalQuote(forceRefresh: forceRefresh);
+    if (mounted) {
+      setState(() {
+        _quote = q;
+        _isLoadingQuote = false;
+      });
+    }
+  }
 
   Future<void> _pickAndOpenExternalPdf() async {
     try {
@@ -200,6 +221,105 @@ class _MotivationReaderScreenState extends State<MotivationReaderScreen> {
                 ),
               ),
             ],
+
+            const SizedBox(height: 18),
+
+            // Live Inspiring Words Card (Powered by Free Quotes API)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF1E293B),
+                    Color(0xFF0F172A),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Icon(LucideIcons.sparkles, color: Color(0xFF38BDF8), size: 14),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'LIVE INSPIRING WORDS',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.0,
+                              color: Color(0xFF38BDF8),
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: _isLoadingQuote
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF38BDF8)),
+                              )
+                            : const Icon(LucideIcons.refreshCw, size: 14, color: Color(0xFF94A3B8)),
+                        tooltip: 'New Inspiring Word',
+                        onPressed: _isLoadingQuote ? null : () => _loadQuote(forceRefresh: true),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 350),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(animation),
+                        child: child,
+                      ),
+                    ),
+                    child: Column(
+                      key: ValueKey(_quote?.text ?? 'loading'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '"${_quote?.text ?? 'Your future is created by what you do today, not what you scroll.'}"',
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            fontStyle: FontStyle.italic,
+                            color: Colors.white,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '— ${_quote?.author ?? 'Discipline Anchor'}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF7DD3FC),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
             const SizedBox(height: 24),
 

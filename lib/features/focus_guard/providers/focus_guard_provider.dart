@@ -152,8 +152,8 @@ class FocusGuardProvider extends ChangeNotifier {
         final nav = appNavigatorKey.currentState;
         if (nav != null) {
           nav.push(
-            MaterialPageRoute(
-              builder: (_) => RealityCheckScreen(
+            smoothTransitionRoute(
+              RealityCheckScreen(
                 blockedPackage: packageName,
                 blockReason: reason,
               ),
@@ -165,8 +165,8 @@ class FocusGuardProvider extends ChangeNotifier {
         final nav = appNavigatorKey.currentState;
         if (nav != null) {
           nav.push(
-            MaterialPageRoute(
-              builder: (_) => MotivationReaderScreen(
+            smoothTransitionRoute(
+              MotivationReaderScreen(
                 reason: reason,
                 blockedPackage: packageName,
               ),
