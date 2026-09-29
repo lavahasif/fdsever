@@ -2,13 +2,28 @@ package com.hasif.fdserver.fdserver.focus_guard
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import com.hasif.fdserver.fdserver.MainActivity
 
 class FocusAccessibilityService : AccessibilityService() {
@@ -16,6 +31,7 @@ class FocusAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "FocusGuardService"
         private const val PREFS_NAME = "focus_guard_native_prefs"
+        private const val PREFS_USAGE = "focus_guard_usage_history"
         private const val KEY_IS_ACTIVE = "focus_guard_active"
         private const val KEY_BLOCK_SHORTS = "focus_guard_block_shorts"
         private const val KEY_BLOCKED_PACKAGES = "focus_guard_blocked_packages"
@@ -28,11 +44,12 @@ class FocusAccessibilityService : AccessibilityService() {
         private var activeForegroundPkg: String? = null
         private var activePkgStartTime: Long = 0L
 
-        fun recordUsage(pkg: String, durationMs: Long) {
+        fun recordUsage(context: Context, pkg: String, durationMs: Long) {
             val list = usageHistory.getOrPut(pkg) { mutableListOf() }
             val now = System.currentTimeMillis()
             list.add(Pair(now, durationMs))
             pruneUsage(list, now)
+            saveUsageHistory(context)
         }
 
         fun getUsageInLastHourMs(pkg: String): Long {
@@ -45,6 +62,54 @@ class FocusAccessibilityService : AccessibilityService() {
         private fun pruneUsage(list: MutableList<Pair<Long, Long>>, now: Long) {
             val oneHourAgo = now - 3600_000L
             list.removeAll { it.first < oneHourAgo }
+        }
+
+        fun saveUsageHistory(context: Context) {
+            try {
+                val prefs = context.getSharedPreferences(PREFS_USAGE, Context.MODE_PRIVATE)
+                val editor = prefs.edit()
+                editor.clear()
+                val now = System.currentTimeMillis()
+                for ((pkg, list) in usageHistory) {
+                    pruneUsage(list, now)
+                    if (list.isNotEmpty()) {
+                        val serialized = list.joinToString(",") { "${it.first}:${it.second}" }
+                        editor.putString(pkg, serialized)
+                    }
+                }
+                editor.apply()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving usage history: ${e.message}")
+            }
+        }
+
+        fun loadUsageHistory(context: Context) {
+            try {
+                val prefs = context.getSharedPreferences(PREFS_USAGE, Context.MODE_PRIVATE)
+                val now = System.currentTimeMillis()
+                val oneHourAgo = now - 3600_000L
+                for ((pkg, value) in prefs.all) {
+                    if (value is String && value.isNotEmpty()) {
+                        val list = mutableListOf<Pair<Long, Long>>()
+                        val entries = value.split(",")
+                        for (entry in entries) {
+                            val parts = entry.split(":")
+                            if (parts.size == 2) {
+                                val time = parts[0].toLongOrNull() ?: 0L
+                                val dur = parts[1].toLongOrNull() ?: 0L
+                                if (time >= oneHourAgo && dur > 0) {
+                                    list.add(Pair(time, dur))
+                                }
+                            }
+                        }
+                        if (list.isNotEmpty()) {
+                            usageHistory[pkg] = list
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading usage history: ${e.message}")
+            }
         }
 
         var instance: FocusAccessibilityService? = null
@@ -73,6 +138,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 .putInt(KEY_HOURLY_BUDGET, hourlyBudgetMinutes)
                 .putStringSet(KEY_BLOCKED_PACKAGES, blockedPackages)
                 .apply()
+            saveUsageHistory(context)
         }
 
         fun loadConfig(context: Context) {
@@ -84,6 +150,7 @@ class FocusAccessibilityService : AccessibilityService() {
             if (savedPkgs != null) {
                 blockedPackages = savedPkgs.toMutableSet()
             }
+            loadUsageHistory(context)
         }
 
         fun incrementTemptationsCount(context: Context): Int {
@@ -123,27 +190,30 @@ class FocusAccessibilityService : AccessibilityService() {
         Log.i(TAG, "FocusGuard Accessibility Service connected (active=$isStrictActive, blockShorts=$blockShortsAndReels, budget=${hourlyBudgetMinutes}m/h)")
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        instance = null
-        Log.i(TAG, "FocusGuard Accessibility Service destroyed")
-    }
-
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
         val packageName = event.packageName?.toString() ?: return
-
-        // Never intercept or block fdserver itself
-        if (packageName == this.packageName) return
-
         val nowRealtime = SystemClock.elapsedRealtime()
+
+        // Never intercept or block fdserver itself; dismiss any active overlay
+        if (packageName == this.packageName) {
+            if (activeForegroundPkg != null && activeForegroundPkg != packageName) {
+                val elapsed = nowRealtime - activePkgStartTime
+                if (elapsed > 500) {
+                    recordUsage(this, activeForegroundPkg!!, elapsed)
+                }
+                activeForegroundPkg = null
+            }
+            removeInterventionOverlay()
+            return
+        }
 
         // Track foreground transitions to log usage in 1-hour window
         if (activeForegroundPkg != null && activeForegroundPkg != packageName) {
             val elapsed = nowRealtime - activePkgStartTime
-            if (elapsed > 1000) {
-                recordUsage(activeForegroundPkg!!, elapsed)
+            if (elapsed > 500) {
+                recordUsage(this, activeForegroundPkg!!, elapsed)
             }
             activeForegroundPkg = packageName
             activePkgStartTime = nowRealtime
@@ -154,17 +224,19 @@ class FocusAccessibilityService : AccessibilityService() {
 
         val isBlockedPkg = blockedPackages.contains(packageName)
 
-        // 1. Blacklisted Apps (Quota enforcement: 0m, 5m, or 10m in 1 hour)
+        // 1. Blacklisted Apps (Strict mode OR Quota enforcement: 0m, 5m, or 10m in 1 hour)
         if (isBlockedPkg) {
-            if (hourlyBudgetMinutes <= 0) {
-                // Strict 0-tolerance mode: zero usage permitted
-                triggerIntervention(packageName, "blacklisted_app")
+            if (isStrictActive || hourlyBudgetMinutes <= 0) {
+                // Instant 0-tolerance block!
+                val reason = if (isStrictActive) "focus_lock_active" else "blacklisted_app"
+                triggerIntervention(packageName, reason)
                 return
             } else {
                 val elapsedCurrent = nowRealtime - activePkgStartTime
                 val totalUsedMs = getUsageInLastHourMs(packageName) + elapsedCurrent
                 val maxAllowedMs = hourlyBudgetMinutes * 60_000L
                 if (totalUsedMs >= maxAllowedMs) {
+                    recordUsage(this, packageName, elapsedCurrent)
                     triggerIntervention(packageName, "hourly_quota_exceeded")
                     return
                 }
@@ -358,6 +430,10 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private fun triggerIntervention(packageName: String, reason: String) {
         val now = SystemClock.elapsedRealtime()
+
+        // Always immediately cover screen with full-screen overlay (cannot be touched or bypassed)
+        showInterventionOverlay(packageName, reason)
+
         if (now - lastInterventionTime < debounceCooldownMs) {
             return
         }
@@ -366,8 +442,7 @@ class FocusAccessibilityService : AccessibilityService() {
         incrementTemptationsCount(this)
         Log.w(TAG, "Intervention triggered for $packageName due to $reason")
 
-        // 1. Kick back out immediately
-        performGlobalAction(GLOBAL_ACTION_BACK)
+        // 1. Drop blocked app to home screen
         performGlobalAction(GLOBAL_ACTION_HOME)
 
         // 2. Notify active in-memory listener
@@ -383,24 +458,258 @@ class FocusAccessibilityService : AccessibilityService() {
                 .apply()
         } catch (_: Exception) {}
 
-        // 4. Launch Reality Check Lock Screen in fdserver
+        // 4. Launch FDServer MainActivity via PendingIntent (bypasses Android 10+ background activity launch restrictions)
+        launchMainActivity(this, packageName, reason)
+    }
+
+    private var overlayView: View? = null
+
+    private fun showInterventionOverlay(pkg: String, reason: String) {
         try {
-            val intent = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+            if (overlayView != null) {
+                return
+            }
+
+            val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                } else {
+                    @Suppress("DEPRECATION")
+                    WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
+                },
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                PixelFormat.TRANSLUCENT
+            )
+
+            val layout = createOverlayView(pkg, reason)
+            overlayView = layout
+            wm.addView(layout, params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error displaying intervention overlay: ${e.message}")
+        }
+    }
+
+    private fun removeInterventionOverlay() {
+        try {
+            if (overlayView != null) {
+                val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                wm?.removeView(overlayView)
+                overlayView = null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing intervention overlay: ${e.message}")
+        }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp.toFloat(),
+            resources.displayMetrics
+        ).toInt()
+    }
+
+    private fun createOverlayView(pkg: String, reason: String): View {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.parseColor("#F209090B")) // Opaque dark overlay
+            setPadding(dpToPx(24), dpToPx(24), dpToPx(24), dpToPx(24))
+            setOnTouchListener { _, _ -> true } // Consume all touches so blocked app cannot be interacted with
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val bg = GradientDrawable().apply {
+                setColor(Color.parseColor("#18181B"))
+                cornerRadius = dpToPx(18).toFloat()
+                setStroke(dpToPx(1), Color.parseColor("#27272A"))
+            }
+            background = bg
+            setPadding(dpToPx(24), dpToPx(28), dpToPx(24), dpToPx(28))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val badge = TextView(this).apply {
+            text = "🛡️ FOCUS GUARD ACTIVE"
+            setTextColor(Color.parseColor("#F59E0B"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }
+        card.addView(badge)
+
+        val title = TextView(this).apply {
+            text = "Distraction Intercepted"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(0, dpToPx(10), 0, 0)
+        }
+        card.addView(title)
+
+        val desc = TextView(this).apply {
+            text = when (reason) {
+                "hourly_quota_exceeded" -> "You exceeded your ${hourlyBudgetMinutes}m hourly limit for this app. Locked to protect your focus."
+                "focus_lock_active" -> "Focus Lock session is active. Zero tolerance for distractions."
+                "youtube_shorts" -> "YouTube Shorts feed intercepted to protect your attention."
+                "instagram_reels" -> "Instagram Reels loop blocked."
+                else -> "This app is blacklisted by your Focus Guard."
+            }
+            setTextColor(Color.parseColor("#A1A1AA"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+            setPadding(0, dpToPx(8), 0, dpToPx(16))
+        }
+        card.addView(desc)
+
+        val quote = TextView(this).apply {
+            text = "\"Your future is created by what you do today, not what you scroll.\""
+            setTextColor(Color.parseColor("#CBD5E1"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(typeface, Typeface.ITALIC)
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10))
+            val quoteBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#27272A"))
+                cornerRadius = dpToPx(10).toFloat()
+            }
+            background = quoteBg
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dpToPx(20)
+            }
+        }
+        card.addView(quote)
+
+        // Button 1: Read Motivation Guide
+        val btnGuide = Button(this).apply {
+            text = "📖 Read Motivation & Mindset Guide"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+            val btnBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#4F46E5"))
+                cornerRadius = dpToPx(12).toFloat()
+            }
+            background = btnBg
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(48)
+            ).apply {
+                bottomMargin = dpToPx(10)
+            }
+            setOnClickListener {
+                removeInterventionOverlay()
+                launchMainActivity(this@FocusAccessibilityService, pkg, reason)
+            }
+        }
+        card.addView(btnGuide)
+
+        // Button 2: Watch Pep Video
+        val btnVideo = Button(this).apply {
+            text = "🎬 Watch Motivation Video"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = Typeface.DEFAULT_BOLD
+            val btnBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#DC2626"))
+                cornerRadius = dpToPx(12).toFloat()
+            }
+            background = btnBg
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(48)
+            ).apply {
+                bottomMargin = dpToPx(10)
+            }
+            setOnClickListener {
+                removeInterventionOverlay()
+                try {
+                    val videoIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=kYfNvmF0Bqw")).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    startActivity(videoIntent)
+                } catch (_: Exception) {}
+            }
+        }
+        card.addView(btnVideo)
+
+        // Button 3: Return to Home
+        val btnHome = Button(this).apply {
+            text = "🏠 Back to Productivity (Home)"
+            setTextColor(Color.parseColor("#A1A1AA"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            val btnBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#27272A"))
+                cornerRadius = dpToPx(12).toFloat()
+            }
+            background = btnBg
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(44)
+            )
+            setOnClickListener {
+                removeInterventionOverlay()
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+        }
+        card.addView(btnHome)
+
+        root.addView(card)
+        return root
+    }
+
+    private fun launchMainActivity(context: Context, packageName: String, reason: String) {
+        try {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                action = "com.hasif.fdserver.FOCUS_INTERVENTION"
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
                         Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 putExtra("action", "com.hasif.fdserver.FOCUS_INTERVENTION")
                 putExtra("blocked_package", packageName)
                 putExtra("block_reason", reason)
             }
-            startActivity(intent)
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                1001,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                pendingIntent.send()
+            } catch (_: Exception) {
+                context.startActivity(intent)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch MainActivity intervention: ${e.message}")
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        removeInterventionOverlay()
+        instance = null
+        Log.i(TAG, "FocusGuard Accessibility Service destroyed")
+    }
+
     override fun onInterrupt() {
+        removeInterventionOverlay()
         Log.w(TAG, "FocusGuard Accessibility Service interrupted")
     }
 }

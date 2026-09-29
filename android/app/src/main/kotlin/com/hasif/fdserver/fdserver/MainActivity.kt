@@ -524,8 +524,12 @@ class MainActivity : FlutterActivity() {
                     try {
                         val pkgs = call.argument<List<String>>("blockedPackages")
                         val blockShorts = call.argument<Boolean>("blockShorts") ?: true
+                        val hourlyBudget = call.argument<Int>("hourlyBudgetMinutes")
                         if (pkgs != null) {
                             FocusAccessibilityService.blockedPackages = pkgs.toMutableSet()
+                        }
+                        if (hourlyBudget != null) {
+                            FocusAccessibilityService.hourlyBudgetMinutes = hourlyBudget
                         }
                         FocusAccessibilityService.blockShortsAndReels = blockShorts
                         FocusAccessibilityService.isStrictActive = true
