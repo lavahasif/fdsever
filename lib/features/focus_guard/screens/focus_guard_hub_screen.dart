@@ -3,11 +3,10 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../../shared/widgets/resource_telemetry_modal.dart';
-import '../models/focus_schedule.dart';
 import '../providers/focus_guard_provider.dart';
 import '../services/focus_guard_bridge.dart';
+import '../widgets/focus_analytics_view.dart';
 import 'app_blacklist_screen.dart';
-import 'mindful_friction_screen.dart';
 import 'motivation_reader_screen.dart';
 import 'reality_check_screen.dart';
 
@@ -20,6 +19,7 @@ class FocusGuardHubScreen extends StatefulWidget {
 
 class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
   final TextEditingController _goalController = TextEditingController();
+  int _selectedTab = 0; // 0 = Guard Controls, 1 = Focus Insights & Analytics
 
   @override
   void initState() {
@@ -118,52 +118,164 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF09090B) : const Color(0xFFF4F4F5),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Top Hero Card (Countdown or Start Session)
-            _buildHeroFocusCard(context, provider),
+      body: Column(
+        children: [
+          // Sub-bar to toggle Controls vs Insights
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF18181B) : Colors.white,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setState(() => _selectedTab = 0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _selectedTab == 0
+                            ? (isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7))
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            LucideIcons.shieldAlert,
+                            size: 16,
+                            color: _selectedTab == 0 ? const Color(0xFFEF4444) : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Guard Controls',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: _selectedTab == 0 ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setState(() => _selectedTab = 1),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _selectedTab == 1
+                            ? (isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7))
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            LucideIcons.barChart2,
+                            size: 16,
+                            color: _selectedTab == 1 ? const Color(0xFF3B82F6) : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Focus Insights',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: _selectedTab == 1 ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          if (provider.dailyFocusScore > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${provider.dailyFocusScore}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _selectedTab == 0
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Top Hero Card (Countdown or Start Session)
+                        _buildHeroFocusCard(context, provider),
 
-            const SizedBox(height: 20),
+                        const SizedBox(height: 20),
 
-            // Goal Anchor Banner
-            _buildGoalBanner(context, provider),
+                        // Goal Anchor Banner
+                        _buildGoalBanner(context, provider),
 
-            const SizedBox(height: 20),
+                        const SizedBox(height: 20),
 
-            // Scheduled Focus Windows Card
-            _buildScheduledFocusCard(context, provider),
+                        // Scheduled Focus Windows Card
+                        _buildScheduledFocusCard(context, provider),
 
-            const SizedBox(height: 20),
+                        const SizedBox(height: 20),
 
-            // Hourly App Usage Quota Card
-            _buildHourlyBudgetCard(context, provider),
+                        // Hourly App Usage Quota Card
+                        _buildHourlyBudgetCard(context, provider),
 
-            const SizedBox(height: 20),
+                        const SizedBox(height: 20),
 
-            // Auto-Diversion Motivation Engine Card
-            _buildDiversionModeCard(context, provider),
+                        // Auto-Diversion Motivation Engine Card
+                        _buildDiversionModeCard(context, provider),
 
-            const SizedBox(height: 20),
+                        const SizedBox(height: 20),
 
-            // Distraction Shield Stats
-            _buildStatsRow(provider),
+                        // Distraction Shield Stats
+                        _buildStatsRow(provider),
 
-            const SizedBox(height: 24),
+                        const SizedBox(height: 24),
 
-            // Permission Verification Card
-            _buildPermissionsCard(context, provider),
+                        // Permission Verification Card
+                        _buildPermissionsCard(context, provider),
 
-            const SizedBox(height: 24),
+                        const SizedBox(height: 24),
 
-            // Quick Actions & Configuration
-            _buildActionButtons(context, provider),
+                        // Quick Actions & Configuration
+                        _buildActionButtons(context, provider),
 
-            const SizedBox(height: 36),
-          ],
-        ),
+                        const SizedBox(height: 36),
+                      ],
+                    ),
+                  )
+                : FocusAnalyticsView(
+                    provider: provider,
+                    isDark: isDark,
+                  ),
+          ),
+        ],
       ),
     );
   }

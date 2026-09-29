@@ -9,6 +9,7 @@ import '../models/visit_cluster.dart';
 import '../services/auto_trail_permission_service.dart';
 import '../services/auto_trail_service.dart';
 import '../services/daily_story_service.dart';
+import '../services/trail_analytics_service.dart';
 import '../services/trail_cluster_service.dart';
 import '../services/trail_export_service.dart';
 
@@ -32,6 +33,33 @@ class AutoTrailProvider extends ChangeNotifier {
   Map<String, dynamic> _globalStats = {};
   double _dayDistanceMeters = 0.0;
 
+  // ─── Feature 1: Weekly Heatmap Calendar ───────────────────────────────
+  Map<DateTime, int> _heatmapData = {};
+
+  // ─── Feature 2: Speed & Movement Analytics ────────────────────────────
+  Map<String, dynamic> _speedAnalytics = {};
+
+  // ─── Feature 3: Visit Frequency Counter ───────────────────────────────
+  Map<String, int> _visitFrequency = {};
+
+  // ─── Feature 4: Night Owl Detector ────────────────────────────────────
+  List<TrailPoint> _nightOwlPoints = [];
+
+  // ─── Feature 5: Commute Time Estimator ────────────────────────────────
+  Map<String, dynamic> _commuteData = {};
+
+  // ─── Feature 6: Location Streak Counter ───────────────────────────────
+  int _trackingStreak = 0;
+
+  // ─── Feature 7: Place Dwell Leaderboard ───────────────────────────────
+  List<Map<String, dynamic>> _dwellLeaderboard = [];
+
+  // ─── Feature 8: Activity Breakdown ────────────────────────────────────
+  Map<String, double> _activityPercentages = {};
+
+  // ─── Feature 9: Trail Distance Milestones ─────────────────────────────
+  Map<String, dynamic> _distanceMilestones = {};
+
   StreamSubscription? _serviceSubscription;
 
   // Getters
@@ -50,6 +78,18 @@ class AutoTrailProvider extends ChangeNotifier {
   Map<String, dynamic> get globalStats => _globalStats;
   double get dayDistanceMeters => _dayDistanceMeters;
 
+  // Analytics Getters (Features 1-10)
+  Map<DateTime, int> get heatmapData => _heatmapData;
+  Map<String, dynamic> get speedAnalytics => _speedAnalytics;
+  Map<String, int> get visitFrequency => _visitFrequency;
+  List<TrailPoint> get nightOwlPoints => _nightOwlPoints;
+  bool get hasNightActivity => _nightOwlPoints.isNotEmpty;
+  Map<String, dynamic> get commuteData => _commuteData;
+  int get trackingStreak => _trackingStreak;
+  List<Map<String, dynamic>> get dwellLeaderboard => _dwellLeaderboard;
+  Map<String, double> get activityPercentages => _activityPercentages;
+  Map<String, dynamic> get distanceMilestones => _distanceMilestones;
+
   bool get hasBackgroundPermission =>
       _permissionStatus == AutoTrailPermissionStatus.allGranted;
 
@@ -65,7 +105,6 @@ class AutoTrailProvider extends ChangeNotifier {
     _isServiceRunning = await _service.isRunning();
     _permissionStatus = await AutoTrailPermissionService.checkStatus();
 
-    // Listen to real-time events from background service
     _serviceSubscription = _service.onServiceUpdate().listen((data) {
       if (data == null) return;
       final event = data['event'] as String?;
@@ -82,12 +121,12 @@ class AutoTrailProvider extends ChangeNotifier {
     });
 
     await refreshData();
+    await loadAnalytics();
     _isLoading = false;
     notifyListeners();
   }
 
   void _onNewPointReceived(TrailPoint point) {
-    // If point belongs to currently viewed date, prepend it
     final ptDate = point.dateTime;
     if (ptDate.year == _selectedDate.year &&
         ptDate.month == _selectedDate.month &&
@@ -100,11 +139,9 @@ class AutoTrailProvider extends ChangeNotifier {
     _loadGlobalStats();
   }
 
-  /// Reloads points for the currently selected date or search filter.
   Future<void> refreshData() async {
     _isServiceRunning = await _service.isRunning();
     _permissionStatus = await AutoTrailPermissionService.checkStatus();
-
     _savedPlaces = await _db.getAllSavedPlaces();
 
     if (_searchQuery.trim().isNotEmpty) {
@@ -116,8 +153,29 @@ class AutoTrailProvider extends ChangeNotifier {
     _recalculateVisitsAndStats();
     await _loadDistinctDates();
     await _loadGlobalStats();
-
     notifyListeners();
+  }
+
+  /// Loads all analytics features
+  Future<void> loadAnalytics() async {
+    try {
+      _heatmapData = await TrailAnalyticsService.getWeeklyHeatmapData();
+      _speedAnalytics = TrailAnalyticsService.computeSpeedAnalytics(_points);
+      if (_savedPlaces.isNotEmpty) {
+        _visitFrequency = await TrailAnalyticsService.getVisitFrequency(_savedPlaces);
+      }
+      _nightOwlPoints = TrailAnalyticsService.getNightOwlPoints(_points);
+      _commuteData = await TrailAnalyticsService.estimateCommute(_savedPlaces);
+      _trackingStreak = await TrailAnalyticsService.getTrackingStreak();
+      if (_savedPlaces.isNotEmpty) {
+        _dwellLeaderboard = await TrailAnalyticsService.getPlaceDwellLeaderboard(_savedPlaces);
+      }
+      _activityPercentages = TrailAnalyticsService.getActivityPercentages(_points);
+      _distanceMilestones = await TrailAnalyticsService.getDistanceMilestones();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading analytics: $e');
+    }
   }
 
   void _recalculateVisitsAndStats() {
@@ -128,6 +186,9 @@ class AutoTrailProvider extends ChangeNotifier {
       visits: _visits,
       savedPlaces: _savedPlaces,
     );
+    _speedAnalytics = TrailAnalyticsService.computeSpeedAnalytics(_points);
+    _nightOwlPoints = TrailAnalyticsService.getNightOwlPoints(_points);
+    _activityPercentages = TrailAnalyticsService.getActivityPercentages(_points);
   }
 
   Future<void> saveNamedPlace(SavedPlace place) async {
@@ -155,7 +216,6 @@ class AutoTrailProvider extends ChangeNotifier {
     _globalStats = await _db.getStats();
   }
 
-  /// Changes the viewing date
   void setSelectedDate(DateTime date) {
     _selectedDate = date;
     _searchQuery = '';
@@ -163,32 +223,27 @@ class AutoTrailProvider extends ChangeNotifier {
     refreshData();
   }
 
-  /// Highlights a point on the map and timeline
   void selectPoint(TrailPoint? point) {
     _selectedPoint = point;
     notifyListeners();
   }
 
-  /// Filters points by search text
   void setSearchQuery(String query) {
     _searchQuery = query;
     _selectedPoint = null;
     refreshData();
   }
 
-  /// Checks and refreshes permission status
   Future<void> checkPermissions() async {
     _permissionStatus = await AutoTrailPermissionService.checkStatus();
     notifyListeners();
   }
 
-  /// Starts two-step permission prompt flow
   Future<void> requestPermissions() async {
     _permissionStatus = await AutoTrailPermissionService.requestAllPermissions();
     notifyListeners();
   }
 
-  /// Toggles passive background logging on/off
   Future<void> toggleService() async {
     if (_isServiceRunning) {
       _service.stopService();
@@ -206,7 +261,7 @@ class AutoTrailProvider extends ChangeNotifier {
       try {
         final started = await _service.startService();
         _isServiceRunning = started;
-      } catch (e, stack) {
+      } catch (e) {
         _isServiceRunning = false;
         notifyListeners();
       }
@@ -214,16 +269,19 @@ class AutoTrailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Records the device's current location immediately on user demand
-  Future<TrailPoint?> recordCurrentLocation() async {
-    final pt = await _service.recordCurrentLocationNow();
+  /// Feature 10: Record location with optional note
+  Future<TrailPoint?> recordCurrentLocation({String? note}) async {
+    var pt = await _service.recordCurrentLocationNow();
     if (pt != null) {
+      if (note != null && note.trim().isNotEmpty) {
+        pt = TrailAnalyticsService.attachNote(pt, note);
+        await _db.insertPoint(pt);
+      }
       _onNewPointReceived(pt);
     }
     return pt;
   }
 
-  /// Deletes a single trail point
   Future<void> deletePoint(int id) async {
     await _db.deletePoint(id);
     if (_selectedPoint?.id == id) {
@@ -232,7 +290,6 @@ class AutoTrailProvider extends ChangeNotifier {
     await refreshData();
   }
 
-  /// Clears all recorded trail history
   Future<void> clearAllHistory() async {
     await _db.clearAllPoints();
     _points.clear();
@@ -241,7 +298,6 @@ class AutoTrailProvider extends ChangeNotifier {
     await refreshData();
   }
 
-  /// Deep links to Google Maps external application
   Future<void> openInGoogleMaps(double lat, double lng) async {
     final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
     if (await canLaunchUrl(uri)) {
@@ -249,12 +305,10 @@ class AutoTrailProvider extends ChangeNotifier {
     }
   }
 
-  /// Shares a single point
   Future<void> sharePoint(TrailPoint point) async {
     await TrailExportService.shareLocation(point);
   }
 
-  /// Exports day's trail in GPX or GeoJSON format
   Future<void> exportDayTrail(String format) async {
     if (_points.isEmpty) return;
     await TrailExportService.shareTrailFile(

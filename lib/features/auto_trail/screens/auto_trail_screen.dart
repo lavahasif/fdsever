@@ -6,6 +6,7 @@ import '../providers/auto_trail_provider.dart';
 import '../services/auto_trail_permission_service.dart';
 import '../services/trail_export_service.dart';
 import '../widgets/daily_story_view.dart';
+import '../widgets/trail_insights_view.dart';
 import '../widgets/trail_map_view.dart';
 import '../widgets/trail_permission_banner.dart';
 import '../widgets/trail_timeline_card.dart';
@@ -26,7 +27,7 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -200,6 +201,10 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
                     icon: const Icon(LucideIcons.building2, size: 16),
                     text: 'Visits (${provider.visits.length})',
                   ),
+                  const Tab(
+                    icon: Icon(LucideIcons.lineChart, size: 16),
+                    text: 'Insights',
+                  ),
                 ],
               ),
             ),
@@ -230,6 +235,12 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
 
                   // Tab 4: Visits
                   _buildVisitsTab(context, provider, isDark),
+
+                  // Tab 5: Insights (Features 1-10)
+                  TrailInsightsView(
+                    provider: provider,
+                    isDark: isDark,
+                  ),
                 ],
               ),
             ),

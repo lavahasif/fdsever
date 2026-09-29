@@ -11,6 +11,7 @@ import '../models/focus_schedule.dart';
 import '../screens/mindful_friction_screen.dart';
 import '../screens/motivation_reader_screen.dart';
 import '../screens/reality_check_screen.dart';
+import '../services/focus_analytics_service.dart';
 import '../services/focus_guard_bridge.dart';
 
 class InterventionAlert {
@@ -56,6 +57,28 @@ class FocusGuardProvider extends ChangeNotifier {
 
   int _temptationsResisted = 0;
   int _minutesSaved = 0;
+
+  // ─── Focus Guard Analytics (Features 11-20) ───────────────────────────
+  int _dailyFocusScore = 0;
+  int _focusStreak = 0;
+  Map<int, int> _temptationHeatmap = {};
+  List<Map<String, dynamic>> _appUsageStats = [];
+  Map<String, dynamic> _longestSession = {};
+  List<Map<String, dynamic>> _interventionLog = [];
+  Map<String, dynamic> _weeklyReport = {};
+  List<Map<String, dynamic>> _whitelistSchedules = [];
+  int _cooldownRemainingSeconds = 0;
+
+  int get dailyFocusScore => _dailyFocusScore;
+  int get focusStreak => _focusStreak;
+  Map<int, int> get temptationHeatmap => _temptationHeatmap;
+  List<Map<String, dynamic>> get appUsageStats => _appUsageStats;
+  Map<String, dynamic> get longestSession => _longestSession;
+  List<Map<String, dynamic>> get interventionLog => _interventionLog;
+  Map<String, dynamic> get weeklyReport => _weeklyReport;
+  List<Map<String, dynamic>> get whitelistSchedules => _whitelistSchedules;
+  int get cooldownRemainingSeconds => _cooldownRemainingSeconds;
+  bool get isInCooldown => _cooldownRemainingSeconds > 0;
 
   List<BlockedAppInfo> _blockedApps = [
     const BlockedAppInfo(packageName: 'com.google.android.youtube', appName: 'YouTube', isBlocked: true),
@@ -197,9 +220,15 @@ class FocusGuardProvider extends ChangeNotifier {
     if (pending != null) {
       _handleIntervention(pending['package'] ?? 'unknown', pending['reason'] ?? 'unknown');
     }
+    await loadAnalytics();
   }
 
-  void _handleIntervention(String packageName, String reason) {
+  Future<void> _handleIntervention(String packageName, String reason) async {
+    // Feature 19: Check whitelist window
+    if (await FocusAnalyticsService.isInWhitelistWindow(packageName)) {
+      return;
+    }
+
     _temptationsResisted++;
     _minutesSaved += 5; // Each blocked dopamine spiral saves an estimated 5-15 mins
     _pendingIntervention = InterventionAlert(
@@ -208,6 +237,8 @@ class FocusGuardProvider extends ChangeNotifier {
       timestamp: DateTime.now(),
     );
     _saveStats();
+    await FocusAnalyticsService.logTemptation(packageName, reason);
+    _dailyFocusScore = await FocusAnalyticsService.calculateDailyScore();
     notifyListeners();
 
     if (_autoDivertEnabled && !_isDiversionActive) {
@@ -422,7 +453,51 @@ class FocusGuardProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> loadAnalytics() async {
+    try {
+      _dailyFocusScore = await FocusAnalyticsService.calculateDailyScore();
+      _focusStreak = await FocusAnalyticsService.getFocusStreak();
+      _temptationHeatmap = await FocusAnalyticsService.getTemptationHeatmap();
+      _appUsageStats = await FocusAnalyticsService.getAppUsageStats();
+      _longestSession = await FocusAnalyticsService.getLongestSession();
+      _interventionLog = await FocusAnalyticsService.getInterventionLog();
+      _weeklyReport = await FocusAnalyticsService.generateWeeklyReport();
+      _whitelistSchedules = await FocusAnalyticsService.getWhitelistSchedules();
+      _cooldownRemainingSeconds = await FocusAnalyticsService.getRemainingCooldownSeconds();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading focus analytics: $e');
+    }
+  }
+
+  // Feature 16: Quick Block Presets
+  Future<bool> startPresetSession(int minutes) async {
+    setSessionDuration(minutes);
+    return await startFocusLock();
+  }
+
+  // Feature 19: Whitelist Schedule operations
+  Future<void> addOrUpdateWhitelistSchedule(Map<String, dynamic> schedule) async {
+    await FocusAnalyticsService.saveWhitelistSchedule(schedule);
+    _whitelistSchedules = await FocusAnalyticsService.getWhitelistSchedules();
+    notifyListeners();
+  }
+
+  Future<void> deleteWhitelistSchedule(String packageName) async {
+    await FocusAnalyticsService.removeWhitelistSchedule(packageName);
+    _whitelistSchedules = await FocusAnalyticsService.getWhitelistSchedules();
+    notifyListeners();
+  }
+
   Future<bool> startFocusLock() async {
+    // Feature 20: Emergency Unlock Cooldown check
+    final remainingCooldown = await FocusAnalyticsService.getRemainingCooldownSeconds();
+    if (remainingCooldown > 0) {
+      _cooldownRemainingSeconds = remainingCooldown;
+      notifyListeners();
+      return false; // In cooldown penalty!
+    }
+
     await checkPermissions();
     if (!_isAccessibilityGranted) {
       await FocusGuardBridge.openAccessibilitySettings();
@@ -460,7 +535,9 @@ class FocusGuardProvider extends ChangeNotifier {
         notifyListeners();
       } else {
         _countdownTimer?.cancel();
-        stopFocusLockImmediate();
+        // Session successfully completed!
+        FocusAnalyticsService.recordSessionCompletion(_sessionDurationMinutes);
+        stopFocusLockImmediate(isEmergency: false);
       }
     });
   }
@@ -484,7 +561,7 @@ class FocusGuardProvider extends ChangeNotifier {
   // Hardcore Emergency Unlock validation: requires solving the exact math problem
   bool verifyAndEmergencyUnlockWithMath(int enteredResult) {
     if (enteredResult == _expectedMathResult) {
-      stopFocusLockImmediate();
+      stopFocusLockImmediate(isEmergency: true);
       return true;
     }
     _generateMathChallenge();
@@ -495,13 +572,13 @@ class FocusGuardProvider extends ChangeNotifier {
   // Hardcore Emergency Unlock validation: requires typing the exact accountability oath
   bool verifyAndEmergencyUnlockWithOath(String typedOath) {
     if (typedOath.trim() == hardcoreOath.trim()) {
-      stopFocusLockImmediate();
+      stopFocusLockImmediate(isEmergency: true);
       return true;
     }
     return false;
   }
 
-  Future<void> stopFocusLockImmediate() async {
+  Future<void> stopFocusLockImmediate({bool isEmergency = false}) async {
     _isLockActive = false;
     _remainingSeconds = 0;
     _countdownTimer?.cancel();
@@ -511,6 +588,14 @@ class FocusGuardProvider extends ChangeNotifier {
 
     await FocusGuardBridge.stopFocusLock();
     _generateMathChallenge();
+
+    if (isEmergency) {
+      // Feature 20: 15-minute emergency unlock penalty cooldown
+      await FocusAnalyticsService.startUnlockCooldown(minutes: 15);
+      _cooldownRemainingSeconds = 15 * 60;
+    }
+
+    await loadAnalytics();
     notifyListeners();
   }
 
