@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import '../../../shared/widgets/resource_telemetry_modal.dart';
 import '../providers/auto_trail_provider.dart';
 import '../services/auto_trail_permission_service.dart';
 import '../services/trail_export_service.dart';
@@ -315,6 +316,13 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
                 );
               }
             },
+          ),
+
+          // Power & Data Diagnostics Button
+          IconButton(
+            icon: const Icon(LucideIcons.gauge, size: 20, color: Color(0xFF10B981)),
+            tooltip: 'Power & Data Diagnostics',
+            onPressed: () => ResourceTelemetryModal.show(context, feature: 'auto_trail'),
           ),
 
           // Export Button

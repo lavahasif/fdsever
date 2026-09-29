@@ -127,7 +127,30 @@ class FocusAccessibilityService : AccessibilityService() {
         }
     }
 
+    private var lastYouTubeScanTime: Long = 0L
+    private val youTubeScanDebounceMs: Long = 250L
+
     private fun checkAndBlockYouTubeShorts(event: AccessibilityEvent) {
+        // Fast-path: Check event class or text directly without scanning tree (0 CPU)
+        val eventClass = event.className?.toString()?.lowercase() ?: ""
+        if (eventClass.contains("reelwatchactivity") ||
+            (eventClass.contains("shorts") && eventClass.contains("player"))) {
+            triggerIntervention("com.google.android.youtube", "youtube_shorts")
+            return
+        }
+
+        val type = event.eventType
+        val isRelevant = type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                type == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                type == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
+                type == AccessibilityEvent.TYPE_VIEW_SELECTED
+
+        val now = SystemClock.elapsedRealtime()
+        if (!isRelevant && (now - lastYouTubeScanTime < youTubeScanDebounceMs)) {
+            return
+        }
+        lastYouTubeScanTime = now
+
         val rootNode = rootInActiveWindow ?: return
         try {
             if (isYouTubeShortsActive(rootNode, event)) {

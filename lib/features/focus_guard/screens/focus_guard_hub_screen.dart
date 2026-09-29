@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../../../shared/widgets/resource_telemetry_modal.dart';
 import '../providers/focus_guard_provider.dart';
 import '../services/focus_guard_bridge.dart';
 import 'app_blacklist_screen.dart';
@@ -611,6 +612,19 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
               ),
             );
           },
+        ),
+        const SizedBox(height: 10),
+        ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFF059669)),
+          ),
+          tileColor: const Color(0xFF064E3B).withValues(alpha: 0.2),
+          leading: const Icon(LucideIcons.gauge, color: Color(0xFF10B981)),
+          title: const Text('Power & Data Diagnostics', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          subtitle: const Text('Live battery (< 0.2%/24h) & zero data footprint telemetry', style: TextStyle(color: Color(0xFF34D399), fontSize: 11)),
+          trailing: const Icon(LucideIcons.chevronRight, color: Color(0xFF10B981)),
+          onTap: () => ResourceTelemetryModal.show(context, feature: 'focus_guard'),
         ),
       ],
     );

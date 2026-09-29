@@ -109,8 +109,16 @@ class AutoTrailService {
     }
   }
 
-  /// Reverse geocodes coordinates to human readable address with offline fallback.
+  static final Map<String, String> _geocodeCache = {};
+
+  /// Reverse geocodes coordinates to human readable address with offline fallback & spatial cache.
   static Future<String> reverseGeocode(double lat, double lng) async {
+    // 3 decimal places (~110m spatial grid) prevents redundant network geocoding requests
+    final cacheKey = '${lat.toStringAsFixed(3)},${lng.toStringAsFixed(3)}';
+    if (_geocodeCache.containsKey(cacheKey)) {
+      return _geocodeCache[cacheKey]!;
+    }
+
     try {
       final placemarks = await Geocoding().placemarkFromCoordinates(lat, lng);
       if (placemarks.isNotEmpty) {
@@ -134,13 +142,20 @@ class AutoTrailService {
         }
 
         if (parts.isNotEmpty) {
-          return parts.join(', ');
+          final result = parts.join(', ');
+          _geocodeCache[cacheKey] = result;
+          if (_geocodeCache.length > 250) {
+            _geocodeCache.remove(_geocodeCache.keys.first);
+          }
+          return result;
         }
       }
     } catch (_) {
       // Offline fallback: geocoding failed or device has no network
     }
-    return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+    final fallback = '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+    _geocodeCache[cacheKey] = fallback;
+    return fallback;
   }
 }
 
