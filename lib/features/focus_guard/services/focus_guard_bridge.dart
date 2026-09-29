@@ -106,6 +106,36 @@ class FocusGuardBridge {
     }
   }
 
+  static Future<bool> syncConfig({
+    required List<String> blockedPackages,
+    required bool blockShorts,
+    bool? isStrict,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    try {
+      final res = await _channel.invokeMethod<bool>('syncConfig', {
+        'blockedPackages': blockedPackages,
+        'blockShorts': blockShorts,
+        if (isStrict != null) 'isStrict': isStrict,
+      });
+      return res ?? false;
+    } catch (e) {
+      debugPrint('Error syncing FocusGuard config: $e');
+      return false;
+    }
+  }
+
+  static Future<Map<String, String>?> checkPendingIntervention() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      final res = await _channel.invokeMapMethod<String, String>('checkPendingIntervention');
+      return res;
+    } catch (e) {
+      debugPrint('Error checking pending intervention: $e');
+      return null;
+    }
+  }
+
   static Future<bool> startFocusLock({
     required List<String> blockedPackages,
     bool blockShorts = true,

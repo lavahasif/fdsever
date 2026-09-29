@@ -88,13 +88,28 @@ class FocusGuardProvider extends ChangeNotifier {
     _init();
   }
 
+  Future<void> syncConfigToNative() async {
+    final activePkgs = _blockedApps.where((a) => a.isBlocked).map((a) => a.packageName).toList();
+    await FocusGuardBridge.syncConfig(
+      blockedPackages: activePkgs,
+      blockShorts: _blockShortsAndReels,
+      isStrict: _isLockActive,
+    );
+  }
+
   Future<void> _init() async {
     FocusGuardBridge.init();
     FocusGuardBridge.addInterventionListener(_handleIntervention);
 
     await _loadPreferences();
     await checkPermissions();
+    await syncConfigToNative();
     _checkActiveSession();
+
+    final pending = await FocusGuardBridge.checkPendingIntervention();
+    if (pending != null) {
+      _handleIntervention(pending['package'] ?? 'unknown', pending['reason'] ?? 'unknown');
+    }
   }
 
   void _handleIntervention(String packageName, String reason) {
@@ -180,14 +195,7 @@ class FocusGuardProvider extends ChangeNotifier {
     _blockShortsAndReels = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyBlockShorts, enabled);
-
-    if (_isLockActive) {
-      final activePkgs = _blockedApps.where((a) => a.isBlocked).map((a) => a.packageName).toList();
-      await FocusGuardBridge.startFocusLock(
-        blockedPackages: activePkgs,
-        blockShorts: _blockShortsAndReels,
-      );
-    }
+    await syncConfigToNative();
     notifyListeners();
   }
 
@@ -199,14 +207,7 @@ class FocusGuardProvider extends ChangeNotifier {
       _blockedApps.add(BlockedAppInfo(packageName: packageName, appName: packageName, isBlocked: true));
     }
     await _saveApps();
-
-    if (_isLockActive) {
-      final activePkgs = _blockedApps.where((a) => a.isBlocked).map((a) => a.packageName).toList();
-      await FocusGuardBridge.startFocusLock(
-        blockedPackages: activePkgs,
-        blockShorts: _blockShortsAndReels,
-      );
-    }
+    await syncConfigToNative();
     notifyListeners();
   }
 
@@ -215,6 +216,7 @@ class FocusGuardProvider extends ChangeNotifier {
     if (!exists) {
       _blockedApps.add(BlockedAppInfo(packageName: packageName, appName: appName, isBlocked: true));
       await _saveApps();
+      await syncConfigToNative();
       notifyListeners();
     }
   }

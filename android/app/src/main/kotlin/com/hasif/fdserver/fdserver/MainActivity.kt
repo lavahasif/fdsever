@@ -27,6 +27,7 @@ class MainActivity : FlutterActivity() {
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
     private var focusGuardChannel: MethodChannel? = null
+    private var pendingInterventionArgs: Map<String, Any>? = null
     // Store pending start arguments when VPN permission is not yet granted
     private var pendingVpnStartArgs: Map<String, Any>? = null
 
@@ -88,7 +89,12 @@ class MainActivity : FlutterActivity() {
         } else if (action == "com.hasif.fdserver.FOCUS_INTERVENTION") {
             val blockedPkg = intent.getStringExtra("blocked_package") ?: ""
             val blockReason = intent.getStringExtra("block_reason") ?: ""
-            focusGuardChannel?.invokeMethod("onInterventionTriggered", mapOf("package" to blockedPkg, "reason" to blockReason))
+            val args = mapOf("package" to blockedPkg, "reason" to blockReason)
+            if (focusGuardChannel != null) {
+                focusGuardChannel?.invokeMethod("onInterventionTriggered", args)
+            } else {
+                pendingInterventionArgs = args
+            }
         }
     }
 
@@ -402,6 +408,10 @@ class MainActivity : FlutterActivity() {
 
         // ── FocusGuard App Blocker Channel ─────────────────────────────────
         focusGuardChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FOCUS_GUARD_CHANNEL)
+        pendingInterventionArgs?.let {
+            focusGuardChannel?.invokeMethod("onInterventionTriggered", it)
+            pendingInterventionArgs = null
+        }
         FocusAccessibilityService.listener = { pkg, reason ->
             runOnUiThread {
                 focusGuardChannel?.invokeMethod("onInterventionTriggered", mapOf("package" to pkg, "reason" to reason))
@@ -472,6 +482,38 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("OVERLAY_SETTINGS_ERROR", e.message, null)
+                    }
+                }
+                "syncConfig" -> {
+                    try {
+                        val pkgs = call.argument<List<String>>("blockedPackages")
+                        val blockShorts = call.argument<Boolean>("blockShorts") ?: true
+                        val isStrict = call.argument<Boolean>("isStrict") ?: FocusAccessibilityService.isStrictActive
+                        if (pkgs != null) {
+                            FocusAccessibilityService.blockedPackages = pkgs.toMutableSet()
+                        }
+                        FocusAccessibilityService.blockShortsAndReels = blockShorts
+                        FocusAccessibilityService.isStrictActive = isStrict
+                        FocusAccessibilityService.saveConfig(this)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SYNC_CONFIG_ERROR", e.message, null)
+                    }
+                }
+                "checkPendingIntervention" -> {
+                    try {
+                        val prefs = getSharedPreferences("focus_guard_native_prefs", Context.MODE_PRIVATE)
+                        val pkg = prefs.getString("pending_intervention_pkg", null)
+                        val reason = prefs.getString("pending_intervention_reason", null)
+                        val time = prefs.getLong("pending_intervention_time", 0L)
+                        if (pkg != null && reason != null && (System.currentTimeMillis() - time < 45000)) {
+                            prefs.edit().remove("pending_intervention_pkg").remove("pending_intervention_reason").apply()
+                            result.success(mapOf("package" to pkg, "reason" to reason))
+                        } else {
+                            result.success(null)
+                        }
+                    } catch (e: Exception) {
+                        result.success(null)
                     }
                 }
                 "startFocusLock" -> {
