@@ -192,6 +192,10 @@ class FocusAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        if (instance == null) {
+            instance = this
+            loadConfig(this)
+        }
 
         val packageName = event.packageName?.toString() ?: return
         val nowRealtime = SystemClock.elapsedRealtime()
@@ -730,6 +734,12 @@ class FocusAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch MainActivity intervention: ${e.message}")
         }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.i(TAG, "Application task removed from recents - FocusGuard remains active in background")
+        loadConfig(this)
     }
 
     override fun onDestroy() {
