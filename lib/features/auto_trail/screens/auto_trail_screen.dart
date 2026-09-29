@@ -5,6 +5,7 @@ import '../../../shared/widgets/resource_telemetry_modal.dart';
 import '../providers/auto_trail_provider.dart';
 import '../services/auto_trail_permission_service.dart';
 import '../services/trail_export_service.dart';
+import '../widgets/daily_story_view.dart';
 import '../widgets/trail_map_view.dart';
 import '../widgets/trail_permission_banner.dart';
 import '../widgets/trail_timeline_card.dart';
@@ -25,7 +26,7 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -183,13 +184,17 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
                 unselectedLabelColor: isDark ? const Color(0xFFA1A1AA) : const Color(0xFF71717A),
                 labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                 tabs: [
+                  const Tab(
+                    icon: Icon(LucideIcons.sparkles, size: 16),
+                    text: 'Day Story',
+                  ),
                   Tab(
                     icon: const Icon(LucideIcons.list, size: 16),
-                    text: 'Timeline (${provider.points.length})',
+                    text: 'Points (${provider.points.length})',
                   ),
                   const Tab(
                     icon: Icon(LucideIcons.map, size: 16),
-                    text: 'Map View',
+                    text: 'Map',
                   ),
                   Tab(
                     icon: const Icon(LucideIcons.building2, size: 16),
@@ -204,10 +209,17 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  // Tab 1: Timeline
+                  // Tab 1: Day Story
+                  DailyStoryView(
+                    storyItems: provider.storyItems,
+                    provider: provider,
+                    isDark: isDark,
+                  ),
+
+                  // Tab 2: Points Timeline
                   _buildTimelineTab(context, provider, isDark),
 
-                  // Tab 2: Map
+                  // Tab 3: Map
                   TrailMapView(
                     points: provider.points,
                     selectedPoint: provider.selectedPoint,
@@ -216,7 +228,7 @@ class _AutoTrailScreenState extends State<AutoTrailScreen> with SingleTickerProv
                     onShare: (pt) => provider.sharePoint(pt),
                   ),
 
-                  // Tab 3: Visits
+                  // Tab 4: Visits
                   _buildVisitsTab(context, provider, isDark),
                 ],
               ),

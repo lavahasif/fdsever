@@ -2,10 +2,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../database/trail_database.dart';
+import '../models/saved_place.dart';
+import '../models/story_item.dart';
 import '../models/trail_point.dart';
 import '../models/visit_cluster.dart';
 import '../services/auto_trail_permission_service.dart';
 import '../services/auto_trail_service.dart';
+import '../services/daily_story_service.dart';
 import '../services/trail_cluster_service.dart';
 import '../services/trail_export_service.dart';
 
@@ -20,6 +23,8 @@ class AutoTrailProvider extends ChangeNotifier {
   DateTime _selectedDate = DateTime.now();
   List<TrailPoint> _points = [];
   List<VisitCluster> _visits = [];
+  List<SavedPlace> _savedPlaces = [];
+  List<StoryTimelineItem> _storyItems = [];
   List<DateTime> _availableDates = [];
   TrailPoint? _selectedPoint;
   String _searchQuery = '';
@@ -36,6 +41,8 @@ class AutoTrailProvider extends ChangeNotifier {
   DateTime get selectedDate => _selectedDate;
   List<TrailPoint> get points => _points;
   List<VisitCluster> get visits => _visits;
+  List<SavedPlace> get savedPlaces => _savedPlaces;
+  List<StoryTimelineItem> get storyItems => _storyItems;
   List<DateTime> get availableDates => _availableDates;
   TrailPoint? get selectedPoint => _selectedPoint;
   String get searchQuery => _searchQuery;
@@ -98,6 +105,8 @@ class AutoTrailProvider extends ChangeNotifier {
     _isServiceRunning = await _service.isRunning();
     _permissionStatus = await AutoTrailPermissionService.checkStatus();
 
+    _savedPlaces = await _db.getAllSavedPlaces();
+
     if (_searchQuery.trim().isNotEmpty) {
       _points = await _db.searchPoints(_searchQuery);
     } else {
@@ -114,6 +123,28 @@ class AutoTrailProvider extends ChangeNotifier {
   void _recalculateVisitsAndStats() {
     _visits = TrailClusterService.detectVisits(_points);
     _dayDistanceMeters = TrailClusterService.calculateTotalDistanceMeters(_points);
+    _storyItems = DailyStoryService.generateStory(
+      points: _points,
+      visits: _visits,
+      savedPlaces: _savedPlaces,
+    );
+  }
+
+  Future<void> saveNamedPlace(SavedPlace place) async {
+    await _db.insertSavedPlace(place);
+    await refreshData();
+  }
+
+  Future<void> deleteNamedPlace(String id) async {
+    await _db.deleteSavedPlace(id);
+    await refreshData();
+  }
+
+  SavedPlace? getMatchingSavedPlace(double lat, double lng) {
+    for (final p in _savedPlaces) {
+      if (p.isInside(lat, lng)) return p;
+    }
+    return null;
   }
 
   Future<void> _loadDistinctDates() async {

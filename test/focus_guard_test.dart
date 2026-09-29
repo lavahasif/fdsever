@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fdserver/features/focus_guard/models/focus_config_model.dart';
+import 'package:fdserver/features/focus_guard/models/focus_schedule.dart';
 import 'package:fdserver/features/focus_guard/providers/focus_guard_provider.dart';
 
 void main() {
@@ -99,7 +100,7 @@ void main() {
       // Default: 5 minutes hourly budget, auto divert enabled, diversion type 'pdf'
       expect(provider.hourlyBudgetMinutes, 5);
       expect(provider.autoDivertEnabled, true);
-      expect(provider.diversionType, 'pdf');
+      expect(provider.diversionType, 'mindful_friction');
 
       // Update hourly budget to 10m
       await provider.setHourlyBudgetMinutes(10);
@@ -120,6 +121,39 @@ void main() {
       // Toggle auto divert
       await provider.setAutoDivertEnabled(false);
       expect(provider.autoDivertEnabled, false);
+    });
+
+    test('FocusSchedule creation, active window check and toggling', () async {
+      final provider = FocusGuardProvider();
+      expect(provider.schedules.isNotEmpty, true);
+
+      final initialSchedule = provider.schedules.first;
+      final scheduleId = initialSchedule.id;
+      final initialEnabled = initialSchedule.isEnabled;
+
+      await provider.toggleSchedule(scheduleId);
+      final toggled = provider.schedules.firstWhere((s) => s.id == scheduleId);
+      expect(toggled.isEnabled, !initialEnabled);
+
+      // Test active schedule evaluation with artificial time
+      const testSchedule = FocusSchedule(
+        id: 'test_sched',
+        name: 'Afternoon Work',
+        startHour: 14,
+        startMinute: 0,
+        endHour: 18,
+        endMinute: 0,
+        daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
+        isEnabled: true,
+      );
+
+      // 15:30 should be active
+      final activeTime = DateTime(2026, 9, 29, 15, 30);
+      expect(testSchedule.isCurrentlyActive(activeTime), true);
+
+      // 19:30 should NOT be active
+      final inactiveTime = DateTime(2026, 9, 29, 19, 30);
+      expect(testSchedule.isCurrentlyActive(inactiveTime), false);
     });
   });
 }

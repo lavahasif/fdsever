@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fdserver/features/auto_trail/models/saved_place.dart';
+import 'package:fdserver/features/auto_trail/models/story_item.dart';
 import 'package:fdserver/features/auto_trail/models/trail_point.dart';
 import 'package:fdserver/features/auto_trail/models/visit_cluster.dart';
+import 'package:fdserver/features/auto_trail/services/daily_story_service.dart';
 import 'package:fdserver/features/auto_trail/services/trail_cluster_service.dart';
 import 'package:fdserver/features/auto_trail/services/trail_export_service.dart';
 
@@ -150,6 +153,91 @@ void main() {
       expect(visits.isNotEmpty, isTrue);
       expect(visits.first.locationName, 'Office Hub');
       expect(visits.first.duration.inMinutes, 45);
+    });
+
+    test('SavedPlace model distance calculation and inside check', () {
+      final place = SavedPlace(
+        id: 'home_1',
+        name: 'Home Sanctuary',
+        latitude: 25.2048,
+        longitude: 55.2708,
+        radiusMeters: 100.0,
+        icon: 'home',
+        createdAt: DateTime.now(),
+      );
+
+      // Same coordinate -> distance is 0 and inside
+      expect(place.distanceTo(25.2048, 55.2708), 0.0);
+      expect(place.isInside(25.2048, 55.2708), true);
+
+      // 5km away -> not inside
+      expect(place.isInside(25.2500, 55.3000), false);
+    });
+
+    test('DailyStoryService synthesizes sequential story with saved places', () {
+      final baseTime = DateTime(2026, 9, 29, 9, 0);
+
+      final savedPlaces = [
+        SavedPlace(
+          id: 'office_1',
+          name: 'Tech Headquarters',
+          latitude: 25.2000,
+          longitude: 55.2700,
+          radiusMeters: 150.0,
+          icon: 'office',
+          createdAt: baseTime,
+        ),
+      ];
+
+      final points = [
+        // Visit at Tech Headquarters (09:00 - 10:00)
+        TrailPoint(
+          id: 1,
+          latitude: 25.2000,
+          longitude: 55.2700,
+          address: 'Building 4B',
+          timestamp: baseTime.millisecondsSinceEpoch,
+          activity: 'still',
+        ),
+        TrailPoint(
+          id: 2,
+          latitude: 25.2001,
+          longitude: 55.2701,
+          address: 'Building 4B',
+          timestamp: baseTime.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+          activity: 'still',
+        ),
+        // Commute to Cafe (10:30)
+        TrailPoint(
+          id: 3,
+          latitude: 25.2300,
+          longitude: 55.3000,
+          address: 'Artisan Cafe',
+          timestamp: baseTime.add(const Duration(hours: 1, minutes: 30)).millisecondsSinceEpoch,
+          activity: 'still',
+        ),
+        TrailPoint(
+          id: 4,
+          latitude: 25.2301,
+          longitude: 55.3001,
+          address: 'Artisan Cafe',
+          timestamp: baseTime.add(const Duration(hours: 2, minutes: 30)).millisecondsSinceEpoch,
+          activity: 'still',
+        ),
+      ];
+
+      final visits = TrailClusterService.detectVisits(points);
+      final story = DailyStoryService.generateStory(
+        points: points,
+        visits: visits,
+        savedPlaces: savedPlaces,
+      );
+
+      expect(story.isNotEmpty, true);
+      // The first visit should be recognized and labeled as "Tech Headquarters"
+      final firstVisitStory = story.firstWhere((s) => s.type == StoryItemType.visit);
+      expect(firstVisitStory.placeName, 'Tech Headquarters');
+      expect(firstVisitStory.placeIcon, 'office');
     });
   });
 }

@@ -2,8 +2,9 @@ import 'dart:async';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import '../models/trail_point.dart';
+import '../models/saved_place.dart';
 
-/// SQLite local database for storing passive location trail points.
+/// SQLite local database for storing passive location trail points and named saved places.
 class TrailDatabase {
   static final TrailDatabase instance = TrailDatabase._init();
   static Database? _database;
@@ -22,8 +23,16 @@ class TrailDatabase {
 
     return await openDatabase(
       path,
-      version: 1,
-      onCreate: _createDB,
+      version: 2,
+      onCreate: (db, version) async {
+        await _createDB(db, version);
+        await _createSavedPlacesTable(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await _createSavedPlacesTable(db);
+        }
+      },
     );
   }
 
@@ -42,6 +51,20 @@ class TrailDatabase {
 
     await db.execute('''
       CREATE INDEX idx_trail_points_timestamp ON trail_points (timestamp)
+    ''');
+  }
+
+  Future<void> _createSavedPlacesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS saved_places (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        radius_meters REAL NOT NULL,
+        icon TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
     ''');
   }
 
@@ -190,6 +213,38 @@ class TrailDatabase {
       'earliest': minTs != null ? DateTime.fromMillisecondsSinceEpoch(minTs) : null,
       'latest': maxTs != null ? DateTime.fromMillisecondsSinceEpoch(maxTs) : null,
     };
+  }
+
+  // ── Saved Places Operations ──────────────────────────────────────────
+
+  /// Inserts or replaces a user-saved place.
+  Future<void> insertSavedPlace(SavedPlace place) async {
+    final db = await database;
+    await db.insert(
+      'saved_places',
+      place.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Retrieves all user-saved places.
+  Future<List<SavedPlace>> getAllSavedPlaces() async {
+    final db = await database;
+    final maps = await db.query(
+      'saved_places',
+      orderBy: 'created_at DESC',
+    );
+    return maps.map((m) => SavedPlace.fromMap(m)).toList();
+  }
+
+  /// Deletes a saved place by ID.
+  Future<int> deleteSavedPlace(String id) async {
+    final db = await database;
+    return await db.delete(
+      'saved_places',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<void> close() async {

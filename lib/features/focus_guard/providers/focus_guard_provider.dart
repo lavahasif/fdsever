@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/app_navigator.dart';
 import '../models/focus_config_model.dart';
+import '../models/focus_schedule.dart';
+import '../screens/mindful_friction_screen.dart';
 import '../screens/motivation_reader_screen.dart';
 import '../screens/reality_check_screen.dart';
 import '../services/focus_guard_bridge.dart';
@@ -33,16 +35,20 @@ class FocusGuardProvider extends ChangeNotifier {
   static const String _keyHourlyBudget = 'focus_guard_hourly_budget';
   static const String _keyDiversionType = 'focus_guard_diversion_type';
   static const String _keyAutoDivert = 'focus_guard_auto_divert';
+  static const String _keySchedules = 'focus_guard_schedules';
 
   bool _isLockActive = false;
   bool _blockShortsAndReels = true;
   int _hourlyBudgetMinutes = 5; // 0 (strict), 5m, 10m allowed per hour
-  String _diversionType = 'pdf'; // 'pdf' | 'video' | 'reality_screen'
+  String _diversionType = 'mindful_friction'; // 'mindful_friction' | 'pdf' | 'video' | 'reality_screen'
   bool _autoDivertEnabled = true;
   String _targetGoal = 'Build great software & achieve financial freedom';
   int _sessionDurationMinutes = 25;
   int _remainingSeconds = 0;
   Timer? _countdownTimer;
+  Timer? _scheduleWatcherTimer;
+
+  List<FocusSchedule> _schedules = List.from(FocusSchedule.defaultSchedules);
 
   bool _isAccessibilityGranted = false;
   bool _hasUsageStats = false;
@@ -96,6 +102,57 @@ class FocusGuardProvider extends ChangeNotifier {
   String get mathQuestion => '($_mathA × $_mathB) + $_mathC';
   int get expectedMathResult => _expectedMathResult;
 
+  List<FocusSchedule> get schedules => List.unmodifiable(_schedules);
+
+  bool get isScheduleCurrentlyActive {
+    final now = DateTime.now();
+    return _schedules.any((s) => s.isCurrentlyActive(now));
+  }
+
+  FocusSchedule? get activeSchedule {
+    final now = DateTime.now();
+    try {
+      return _schedules.firstWhere((s) => s.isCurrentlyActive(now));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> toggleSchedule(String id) async {
+    final idx = _schedules.indexWhere((s) => s.id == id);
+    if (idx != -1) {
+      _schedules[idx] = _schedules[idx].copyWith(isEnabled: !_schedules[idx].isEnabled);
+      await _saveSchedules();
+      await syncConfigToNative();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateSchedule(FocusSchedule schedule) async {
+    final idx = _schedules.indexWhere((s) => s.id == schedule.id);
+    if (idx != -1) {
+      _schedules[idx] = schedule;
+    } else {
+      _schedules.add(schedule);
+    }
+    await _saveSchedules();
+    await syncConfigToNative();
+    notifyListeners();
+  }
+
+  Future<void> deleteSchedule(String id) async {
+    _schedules.removeWhere((s) => s.id == id);
+    await _saveSchedules();
+    await syncConfigToNative();
+    notifyListeners();
+  }
+
+  Future<void> _saveSchedules() async {
+    final prefs = await SharedPreferences.getInstance();
+    final jsonList = _schedules.map((s) => s.toJson()).toList();
+    await prefs.setString(_keySchedules, jsonEncode(jsonList));
+  }
+
   FocusGuardProvider() {
     _generateMathChallenge();
     _init();
@@ -103,11 +160,13 @@ class FocusGuardProvider extends ChangeNotifier {
 
   Future<void> syncConfigToNative() async {
     final activePkgs = _blockedApps.where((a) => a.isBlocked).map((a) => a.packageName).toList();
+    final isScheduleActive = isScheduleCurrentlyActive;
+    final isStrict = _isLockActive || isScheduleActive;
     await FocusGuardBridge.syncConfig(
       blockedPackages: activePkgs,
       blockShorts: _blockShortsAndReels,
-      isStrict: _isLockActive,
-      hourlyBudgetMinutes: _hourlyBudgetMinutes,
+      isStrict: isStrict,
+      hourlyBudgetMinutes: isScheduleActive ? 0 : _hourlyBudgetMinutes,
     );
   }
 
@@ -119,6 +178,11 @@ class FocusGuardProvider extends ChangeNotifier {
     await checkPermissions();
     await syncConfigToNative();
     _checkActiveSession();
+
+    // Periodic watcher to dynamically engage/disengage scheduled focus windows
+    _scheduleWatcherTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      syncConfigToNative();
+    });
 
     final pending = await FocusGuardBridge.checkPendingIntervention();
     if (pending != null) {
@@ -144,7 +208,19 @@ class FocusGuardProvider extends ChangeNotifier {
 
   Future<void> _executeDiversion(String packageName, String reason) async {
     try {
-      if (_diversionType == 'video') {
+      if (_diversionType == 'mindful_friction') {
+        final nav = appNavigatorKey.currentState;
+        if (nav != null) {
+          nav.push(
+            smoothTransitionRoute(
+              MindfulFrictionScreen(
+                blockedPackage: packageName,
+                blockReason: reason,
+              ),
+            ),
+          );
+        }
+      } else if (_diversionType == 'video') {
         const videoUrl = 'https://www.youtube.com/watch?v=kYfNvmF0Bqw';
         final uri = Uri.parse(videoUrl);
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -211,8 +287,16 @@ class FocusGuardProvider extends ChangeNotifier {
     _temptationsResisted = prefs.getInt(_keyTemptations) ?? 0;
     _minutesSaved = prefs.getInt(_keyMinutesSaved) ?? 0;
     _hourlyBudgetMinutes = prefs.getInt(_keyHourlyBudget) ?? 5;
-    _diversionType = prefs.getString(_keyDiversionType) ?? 'pdf';
+    _diversionType = prefs.getString(_keyDiversionType) ?? 'mindful_friction';
     _autoDivertEnabled = prefs.getBool(_keyAutoDivert) ?? true;
+
+    final schedulesJson = prefs.getString(_keySchedules);
+    if (schedulesJson != null) {
+      try {
+        final decoded = jsonDecode(schedulesJson) as List;
+        _schedules = decoded.map((e) => FocusSchedule.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+      } catch (_) {}
+    }
 
     final appsJson = prefs.getString(_keyBlockedApps);
     if (appsJson != null) {
@@ -411,6 +495,7 @@ class FocusGuardProvider extends ChangeNotifier {
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _scheduleWatcherTimer?.cancel();
     FocusGuardBridge.removeInterventionListener(_handleIntervention);
     super.dispose();
   }

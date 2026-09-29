@@ -3,9 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../../shared/widgets/resource_telemetry_modal.dart';
+import '../models/focus_schedule.dart';
 import '../providers/focus_guard_provider.dart';
 import '../services/focus_guard_bridge.dart';
 import 'app_blacklist_screen.dart';
+import 'mindful_friction_screen.dart';
 import 'motivation_reader_screen.dart';
 import 'reality_check_screen.dart';
 
@@ -128,6 +130,11 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
 
             // Goal Anchor Banner
             _buildGoalBanner(context, provider),
+
+            const SizedBox(height: 20),
+
+            // Scheduled Focus Windows Card
+            _buildScheduledFocusCard(context, provider),
 
             const SizedBox(height: 20),
 
@@ -585,6 +592,143 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
     );
   }
 
+  Widget _buildScheduledFocusCard(BuildContext context, FocusGuardProvider provider) {
+    final isScheduleActive = provider.isScheduleCurrentlyActive;
+    final activeSchedule = provider.activeSchedule;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF18181B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isScheduleActive
+              ? const Color(0xFF10B981).withValues(alpha: 0.6)
+              : const Color(0xFF10B981).withValues(alpha: 0.25),
+          width: isScheduleActive ? 1.5 : 1.0,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(LucideIcons.calendarClock, color: Color(0xFF10B981), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Automated Focus Schedules',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      isScheduleActive
+                          ? 'Active Now: ${activeSchedule?.name ?? "Scheduled Window"}'
+                          : 'Auto-engage strict lock during work or sleep hours',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isScheduleActive ? const Color(0xFF34D399) : const Color(0xFFA1A1AA),
+                        fontWeight: isScheduleActive ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isScheduleActive)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF10B981)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.zap, size: 12, color: Color(0xFF10B981)),
+                      SizedBox(width: 4),
+                      Text(
+                        'ACTIVE',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...provider.schedules.map((schedule) {
+            final isActiveNow = schedule.isCurrentlyActive();
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: isActiveNow
+                    ? const Color(0xFF10B981).withValues(alpha: 0.1)
+                    : const Color(0xFF27272A).withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isActiveNow
+                      ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                      : Colors.transparent,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    schedule.name.toLowerCase().contains('sleep') || schedule.name.toLowerCase().contains('bed')
+                        ? LucideIcons.moon
+                        : LucideIcons.briefcase,
+                    size: 16,
+                    color: schedule.isEnabled
+                        ? (isActiveNow ? const Color(0xFF10B981) : const Color(0xFF60A5FA))
+                        : const Color(0xFF71717A),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          schedule.name,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.bold,
+                            color: schedule.isEnabled ? Colors.white : const Color(0xFF71717A),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${schedule.timeRangeString} • ${schedule.daysSummary}',
+                          style: const TextStyle(fontSize: 10.5, color: Color(0xFFA1A1AA)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: schedule.isEnabled,
+                    activeColor: const Color(0xFF10B981),
+                    onChanged: (_) => provider.toggleSchedule(schedule.id),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   Widget _buildHourlyBudgetCard(BuildContext context, FocusGuardProvider provider) {
     return Container(
       width: double.infinity,
@@ -756,13 +900,23 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
               style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFA1A1AA)),
             ),
             const SizedBox(height: 10),
-            Row(
+            Column(
               children: [
-                _buildDiversionOption(provider, 'pdf', '📖 Motivation PDF', 'Deep Work & Books'),
-                const SizedBox(width: 8),
-                _buildDiversionOption(provider, 'video', '🎬 Video Boost', 'High-Energy Pep'),
-                const SizedBox(width: 8),
-                _buildDiversionOption(provider, 'reality_screen', '🛡️ Reality Check', 'Harsh Truth & Math'),
+                Row(
+                  children: [
+                    _buildDiversionOption(provider, 'mindful_friction', '🧘 10s Breath Delay', 'Dopamine Breaker (Recommended)'),
+                    const SizedBox(width: 8),
+                    _buildDiversionOption(provider, 'pdf', '📖 Mindset Guide', 'Deep Work & Stoic'),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _buildDiversionOption(provider, 'video', '🎬 Video Boost', 'High-Energy Pep'),
+                    const SizedBox(width: 8),
+                    _buildDiversionOption(provider, 'reality_screen', '🛡️ Reality Check', 'Harsh Truth & Math'),
+                  ],
+                ),
               ],
             ),
           ],
