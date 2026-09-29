@@ -338,7 +338,44 @@ class FocusAccessibilityService : AccessibilityService() {
             }
         }
 
-        // 2. Continuous Shorts & Reels Shield (runs whenever shield is enabled)
+        // 2. PiP / Minimized Mode Detection — blocked apps running in Picture-in-Picture
+        if (isBlockedPkg || blockedPackages.any { packageName.contains(it.substringBefore(".").takeLast(5)) }) {
+            // Check for PiP window state
+            try {
+                val windowList = windows
+                if (windowList != null) {
+                    for (window in windowList) {
+                        val windowPkg = window.root?.packageName?.toString()
+                        if (windowPkg != null && blockedPackages.contains(windowPkg)) {
+                            // TYPE_ACCESSIBILITY_OVERLAY = 4, TYPE_SPLIT_SCREEN = 3
+                            // PiP windows are typically TYPE_APPLICATION (1) but with small bounds
+                            val bounds = android.graphics.Rect()
+                            window.getBoundsInScreen(bounds)
+                            val screenWidth = resources.displayMetrics.widthPixels
+                            val screenHeight = resources.displayMetrics.heightPixels
+                            val windowArea = bounds.width().toLong() * bounds.height().toLong()
+                            val screenArea = screenWidth.toLong() * screenHeight.toLong()
+                            // PiP windows occupy less than 25% of screen
+                            if (windowArea > 0 && windowArea < screenArea / 4) {
+                                Log.w(TAG, "PiP/minimized blocked app detected: $windowPkg — closing")
+                                // Close PiP by pressing BACK (closes PiP overlay)
+                                performGlobalAction(GLOBAL_ACTION_BACK)
+                                // Follow up with another BACK after a short delay to ensure dismissal
+                                enforcementHandler.postDelayed({
+                                    performGlobalAction(GLOBAL_ACTION_BACK)
+                                }, 200)
+                                incrementTemptationsCount(this)
+                                break
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "PiP detection error: ${e.message}")
+            }
+        }
+
+        // 3. Continuous Shorts & Reels Shield (runs whenever shield is enabled)
         if (blockShortsAndReels) {
             val isYouTubePkg = packageName == "com.google.android.youtube" ||
                     packageName == "app.revanced.android.youtube" ||
@@ -352,6 +389,7 @@ class FocusAccessibilityService : AccessibilityService() {
             }
         }
     }
+
 
     private var lastYouTubeScanTime: Long = 0L
     private val youTubeScanDebounceMs: Long = 200L

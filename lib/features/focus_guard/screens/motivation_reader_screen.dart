@@ -50,21 +50,31 @@ class _MotivationReaderScreenState extends State<MotivationReaderScreen> {
         allowedExtensions: ['pdf', 'epub', 'txt', 'doc'],
       );
 
-      if (files.isNotEmpty && files.first.path != null) {
-        final path = files.first.path!;
-        setState(() {
-          _selectedLocalPdfName = files.first.name;
-          _selectedLocalPdfPath = path;
-        });
+      if (files.isEmpty) return;
 
-        // Launch in native PDF viewer
+      final file = files.first;
+      final path = file.path;
+      if (path == null) return;
+
+      setState(() {
+        _selectedLocalPdfName = file.name;
+        _selectedLocalPdfPath = path;
+      });
+
+      // Open with system viewer using the file path
+      final fileObj = File(path);
+      if (await fileObj.exists()) {
         final uri = Uri.file(path);
-        if (await canLaunchUrl(uri)) {
-          await launchUrl(uri);
-        } else {
+        try {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } catch (_) {
+          // Fallback: show confirmation with active doc section
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Selected: ${files.first.name}')),
+              SnackBar(
+                content: Text('Selected: ${file.name}. Open from "Active Document" below.'),
+                backgroundColor: const Color(0xFF10B981),
+              ),
             );
           }
         }
@@ -72,11 +82,16 @@ class _MotivationReaderScreenState extends State<MotivationReaderScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error opening document: $e')),
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
         );
       }
     }
   }
+
+
 
   Future<void> _launchMotivationalVideo() async {
     const videoUrl = 'https://www.youtube.com/watch?v=kYfNvmF0Bqw';
@@ -210,9 +225,20 @@ class _MotivationReaderScreenState extends State<MotivationReaderScreen> {
                       ),
                     ),
                     TextButton(
-                      onPressed: () {
+                      onPressed: () async {
                         if (_selectedLocalPdfPath != null) {
-                          launchUrl(Uri.file(_selectedLocalPdfPath!));
+                          try {
+                            await launchUrl(
+                              Uri.file(_selectedLocalPdfPath!),
+                              mode: LaunchMode.externalApplication,
+                            );
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Cannot open file: $e')),
+                              );
+                            }
+                          }
                         }
                       },
                       child: const Text('Re-open', style: TextStyle(fontSize: 12, color: Color(0xFF10B981))),

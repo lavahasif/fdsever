@@ -73,6 +73,10 @@ class FocusGuardProvider extends ChangeNotifier {
 
   InterventionAlert? _pendingIntervention;
 
+  // Guard to prevent infinite diversion page stacking
+  bool _isDiversionActive = false;
+  DateTime? _lastDiversionTime;
+
   // Anti-Bypass Math & Oath State
   int _mathA = 0;
   int _mathB = 0;
@@ -206,17 +210,27 @@ class FocusGuardProvider extends ChangeNotifier {
     _saveStats();
     notifyListeners();
 
-    if (_autoDivertEnabled) {
+    if (_autoDivertEnabled && !_isDiversionActive) {
+      // Debounce: don't push another screen if one was pushed within last 3s
+      final now = DateTime.now();
+      if (_lastDiversionTime != null &&
+          now.difference(_lastDiversionTime!).inSeconds < 3) {
+        return;
+      }
+      _lastDiversionTime = now;
       _executeDiversion(packageName, reason);
     }
   }
 
   Future<void> _executeDiversion(String packageName, String reason) async {
+    if (_isDiversionActive) return; // Prevent stacking
+    _isDiversionActive = true;
+
     try {
       if (_diversionType == 'mindful_friction') {
         final nav = appNavigatorKey.currentState;
         if (nav != null) {
-          nav.push(
+          await nav.push(
             smoothTransitionRoute(
               MindfulFrictionScreen(
                 blockedPackage: packageName,
@@ -232,7 +246,7 @@ class FocusGuardProvider extends ChangeNotifier {
       } else if (_diversionType == 'reality_screen') {
         final nav = appNavigatorKey.currentState;
         if (nav != null) {
-          nav.push(
+          await nav.push(
             smoothTransitionRoute(
               RealityCheckScreen(
                 blockedPackage: packageName,
@@ -245,7 +259,7 @@ class FocusGuardProvider extends ChangeNotifier {
         // Default 'pdf' / Motivation Guide
         final nav = appNavigatorKey.currentState;
         if (nav != null) {
-          nav.push(
+          await nav.push(
             smoothTransitionRoute(
               MotivationReaderScreen(
                 reason: reason,
@@ -257,11 +271,14 @@ class FocusGuardProvider extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('Error triggering auto-diversion: $e');
+    } finally {
+      _isDiversionActive = false;
     }
   }
 
   void clearPendingIntervention() {
     _pendingIntervention = null;
+    _isDiversionActive = false; // Reset guard when user clears intervention
     notifyListeners();
   }
 
