@@ -93,5 +93,33 @@ void main() {
         false,
       );
     });
+
+    test('Hourly Budget and Auto-Diversion configuration', () async {
+      final provider = FocusGuardProvider();
+      // Default: 5 minutes hourly budget, auto divert enabled, diversion type 'pdf'
+      expect(provider.hourlyBudgetMinutes, 5);
+      expect(provider.autoDivertEnabled, true);
+      expect(provider.diversionType, 'pdf');
+
+      // Update hourly budget to 10m
+      await provider.setHourlyBudgetMinutes(10);
+      expect(provider.hourlyBudgetMinutes, 10);
+
+      // Update hourly budget to strict (0m)
+      await provider.setHourlyBudgetMinutes(0);
+      expect(provider.hourlyBudgetMinutes, 0);
+
+      // Update diversion type to video
+      await provider.setDiversionType('video');
+      expect(provider.diversionType, 'video');
+
+      // Update diversion type to reality_screen
+      await provider.setDiversionType('reality_screen');
+      expect(provider.diversionType, 'reality_screen');
+
+      // Toggle auto divert
+      await provider.setAutoDivertEnabled(false);
+      expect(provider.autoDivertEnabled, false);
+    });
   });
 }

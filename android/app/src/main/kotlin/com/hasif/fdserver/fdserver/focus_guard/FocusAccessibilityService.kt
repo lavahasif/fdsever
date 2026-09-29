@@ -17,6 +17,9 @@ class FocusAccessibilityService : AccessibilityService() {
         private const val TAG = "FocusGuardService"
         private const val PREFS_NAME = "focus_guard_native_prefs"
         private const val KEY_IS_ACTIVE = "focus_guard_active"
+        private const val KEY_BLOCK_SHORTS = "focus_guard_block_shorts"
+        private const val KEY_BLOCKED_PACKAGES = "focus_guard_blocked_packages"
+        private const val KEY_TEMPTATIONS_BLOCKED = "focus_guard_temptations_blocked"
         private const val KEY_HOURLY_BUDGET = "focus_guard_hourly_budget"
         var hourlyBudgetMinutes: Int = 5 // 0 = strict instant block, 5 = 5m/hr, 10 = 10m/hr
 
