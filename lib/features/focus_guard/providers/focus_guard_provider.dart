@@ -58,7 +58,7 @@ class FocusGuardProvider extends ChangeNotifier {
   int _minutesSaved = 0;
 
   List<BlockedAppInfo> _blockedApps = [
-    const BlockedAppInfo(packageName: 'com.google.android.youtube', appName: 'YouTube (Shorts Shield)', isBlocked: false, isShortsOnly: true),
+    const BlockedAppInfo(packageName: 'com.google.android.youtube', appName: 'YouTube', isBlocked: true),
     const BlockedAppInfo(packageName: 'com.instagram.android', appName: 'Instagram', isBlocked: true),
     const BlockedAppInfo(packageName: 'com.zhiliaoapp.musically', appName: 'TikTok', isBlocked: true),
     const BlockedAppInfo(packageName: 'com.ss.android.ugc.trill', appName: 'TikTok (Asia)', isBlocked: true),
@@ -159,7 +159,12 @@ class FocusGuardProvider extends ChangeNotifier {
   }
 
   Future<void> syncConfigToNative() async {
-    final activePkgs = _blockedApps.where((a) => a.isBlocked).map((a) => a.packageName).toList();
+    // Include all blocked apps + shortsOnly apps (YouTube) when shorts blocking is enabled
+    final activePkgs = _blockedApps
+        .where((a) => a.isBlocked || (a.isShortsOnly && _blockShortsAndReels))
+        .map((a) => a.packageName)
+        .toSet()
+        .toList();
     final isScheduleActive = isScheduleCurrentlyActive;
     final isStrict = _isLockActive || isScheduleActive;
     await FocusGuardBridge.syncConfig(

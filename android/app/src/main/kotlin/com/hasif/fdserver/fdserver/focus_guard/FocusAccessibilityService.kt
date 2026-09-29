@@ -12,6 +12,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.util.TypedValue
@@ -167,7 +169,70 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private var lastInterventionTime: Long = 0L
-    private val debounceCooldownMs: Long = 1000L
+    private val debounceCooldownMs: Long = 800L
+
+    // Persistent enforcement: tracks the currently-blocked foreground package
+    // and uses a Handler loop to continuously re-assert the overlay + HOME action
+    private val enforcementHandler = Handler(Looper.getMainLooper())
+    private var currentlyBlockedPkg: String? = null
+    private var enforcementRunning = false
+    private val ENFORCEMENT_INTERVAL_MS = 500L // Re-check every 500ms
+    private var consecutiveHomeActions = 0
+    private val MAX_CONSECUTIVE_HOME = 3 // Don't spam HOME more than 3 times in a row
+
+    private val enforcementRunnable = object : Runnable {
+        override fun run() {
+            if (!enforcementRunning) return
+            val blockedPkg = currentlyBlockedPkg ?: run {
+                stopEnforcement()
+                return
+            }
+
+            // Check if blocked app is still the foreground package
+            val currentFg = activeForegroundPkg
+            if (currentFg == blockedPkg) {
+                // Blocked app is STILL in foreground — re-assert overlay and send HOME
+                ensureOverlayShown(blockedPkg, "persistent_block")
+                if (consecutiveHomeActions < MAX_CONSECUTIVE_HOME) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    consecutiveHomeActions++
+                }
+            } else if (currentFg == packageName || currentFg == null) {
+                // User is now in fdserver or home — stop enforcement
+                stopEnforcement()
+                return
+            } else if (!blockedPackages.contains(currentFg ?: "")) {
+                // User switched to a non-blocked app — stop enforcement
+                stopEnforcement()
+                return
+            } else {
+                // Switched to another blocked app — update target
+                currentlyBlockedPkg = currentFg
+                consecutiveHomeActions = 0
+                ensureOverlayShown(currentFg!!, "blacklisted_app")
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+
+            enforcementHandler.postDelayed(this, ENFORCEMENT_INTERVAL_MS)
+        }
+    }
+
+    private fun startEnforcement(pkg: String) {
+        currentlyBlockedPkg = pkg
+        consecutiveHomeActions = 0
+        if (!enforcementRunning) {
+            enforcementRunning = true
+            enforcementHandler.postDelayed(enforcementRunnable, ENFORCEMENT_INTERVAL_MS)
+        }
+    }
+
+    private fun stopEnforcement() {
+        enforcementRunning = false
+        currentlyBlockedPkg = null
+        consecutiveHomeActions = 0
+        enforcementHandler.removeCallbacks(enforcementRunnable)
+        removeInterventionOverlay()
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -207,9 +272,35 @@ class FocusAccessibilityService : AccessibilityService() {
                 if (elapsed > 500) {
                     recordUsage(this, activeForegroundPkg!!, elapsed)
                 }
-                activeForegroundPkg = null
+                activeForegroundPkg = packageName
+                activePkgStartTime = nowRealtime
             }
-            removeInterventionOverlay()
+            stopEnforcement()
+            return
+        }
+
+        // Ignore system UI (status bar, navigation, etc.)
+        if (packageName == "com.android.systemui" ||
+            packageName == "com.android.launcher" ||
+            packageName == "com.android.launcher3" ||
+            packageName == "com.google.android.apps.nexuslauncher" ||
+            packageName == "com.miui.home" ||
+            packageName == "com.sec.android.app.launcher" ||
+            packageName == "com.huawei.android.launcher" ||
+            packageName == "com.oppo.launcher" ||
+            packageName == "com.realme.launcher" ||
+            packageName == "com.nothing.launcher" ||
+            packageName == "com.microsoft.launcher") {
+            // User went to home screen / status bar — stop enforcement
+            if (activeForegroundPkg != null && activeForegroundPkg != packageName) {
+                val elapsed = nowRealtime - activePkgStartTime
+                if (elapsed > 500) {
+                    recordUsage(this, activeForegroundPkg!!, elapsed)
+                }
+                activeForegroundPkg = null
+                activePkgStartTime = 0L
+            }
+            stopEnforcement()
             return
         }
 
@@ -249,30 +340,42 @@ class FocusAccessibilityService : AccessibilityService() {
 
         // 2. Continuous Shorts & Reels Shield (runs whenever shield is enabled)
         if (blockShortsAndReels) {
-            if (packageName == "com.google.android.youtube" ||
-                packageName == "app.revanced.android.youtube" ||
-                packageName == "com.google.android.youtube.tv") {
-                checkAndBlockYouTubeShorts(event)
-            } else if (packageName == "com.instagram.android") {
+            val isYouTubePkg = packageName == "com.google.android.youtube" ||
+                    packageName == "app.revanced.android.youtube" ||
+                    packageName == "com.google.android.youtube.tv"
+            val isInstagramPkg = packageName == "com.instagram.android"
+
+            if (isYouTubePkg) {
+                checkAndBlockYouTubeShorts(event, packageName)
+            } else if (isInstagramPkg) {
                 checkAndBlockInstagramReels(event)
             }
         }
     }
 
     private var lastYouTubeScanTime: Long = 0L
-    private val youTubeScanDebounceMs: Long = 250L
+    private val youTubeScanDebounceMs: Long = 200L
 
-    private fun checkAndBlockYouTubeShorts(event: AccessibilityEvent) {
+    private fun checkAndBlockYouTubeShorts(event: AccessibilityEvent, actualPkg: String) {
         // Fast-path: Check event class or text directly without scanning tree (0 CPU)
         val eventClass = event.className?.toString()?.lowercase() ?: ""
-        if (eventClass.contains("reelwatchactivity") ||
+        if (eventClass.contains("reelwatch") ||
+            eventClass.contains("shortsactivity") ||
             (eventClass.contains("shorts") && eventClass.contains("player"))) {
-            triggerIntervention("com.google.android.youtube", "youtube_shorts")
+            triggerIntervention(actualPkg, "youtube_shorts")
+            return
+        }
+
+        // Check event text for direct Shorts indicators
+        val eventText = event.text?.joinToString(" ")?.lowercase() ?: ""
+        if (eventText.contains("shorts") && (eventText.contains("subscribe") || eventText.contains("remix"))) {
+            triggerIntervention(actualPkg, "youtube_shorts")
             return
         }
 
         val type = event.eventType
         val isRelevant = type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
                 type == AccessibilityEvent.TYPE_VIEW_CLICKED ||
                 type == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
                 type == AccessibilityEvent.TYPE_VIEW_SELECTED
@@ -286,7 +389,7 @@ class FocusAccessibilityService : AccessibilityService() {
         val rootNode = rootInActiveWindow ?: return
         try {
             if (isYouTubeShortsActive(rootNode, event)) {
-                triggerIntervention("com.google.android.youtube", "youtube_shorts")
+                triggerIntervention(actualPkg, "youtube_shorts")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error checking YouTube Shorts: ${e.message}")
@@ -296,7 +399,8 @@ class FocusAccessibilityService : AccessibilityService() {
     private fun isYouTubeShortsActive(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent?): Boolean {
         // A. Class Name indicator
         val eventClass = event?.className?.toString()?.lowercase() ?: ""
-        if (eventClass.contains("reelwatchactivity") ||
+        if (eventClass.contains("reelwatch") ||
+            eventClass.contains("shortsactivity") ||
             (eventClass.contains("shorts") && eventClass.contains("player"))) {
             return true
         }
@@ -307,45 +411,71 @@ class FocusAccessibilityService : AccessibilityService() {
             for (node in shortsNodes) {
                 if (node.isSelected) return true
                 val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-                if (desc.contains("selected") || desc.contains("tab 2") || desc.contains("shorts, tab")) {
+                if (desc.contains("selected") || desc.contains("tab 2") || desc.contains("shorts, tab") || desc.contains("shorts tab")) {
+                    return true
+                }
+                // Check parent for selected state (bottom nav wraps tab in container)
+                val parent = node.parent
+                if (parent != null && parent.isSelected) return true
+            }
+        } catch (_: Exception) {}
+
+        // C. Shorts Player Unique Action Buttons
+        try {
+            val remixNodes = rootNode.findAccessibilityNodeInfosByText("Remix")
+            if (remixNodes.isNotEmpty()) {
+                // Verify this is shorts context (Remix button near video controls)
+                for (node in remixNodes) {
+                    val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                    if (desc.contains("remix") || desc.contains("short")) return true
+                    // If Remix button exists in YouTube, it's almost certainly Shorts
                     return true
                 }
             }
         } catch (_: Exception) {}
 
-        // C. Shorts Player Unique Action Buttons ("Remix", "Sound used in this short")
+        // D. Check for "Sound" label unique to Shorts
         try {
-            val remixNodes = rootNode.findAccessibilityNodeInfosByText("Remix")
-            if (remixNodes.isNotEmpty()) {
-                return true
+            val soundNodes = rootNode.findAccessibilityNodeInfosByText("Sound")
+            for (node in soundNodes) {
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                if (desc.contains("sound") && (desc.contains("short") || desc.contains("original"))) {
+                    return true
+                }
             }
         } catch (_: Exception) {}
 
-        // D. Hierarchy scan
+        // E. Hierarchy scan for known view IDs
         return scanNodeForShorts(rootNode, 0)
     }
 
     private fun scanNodeForShorts(node: AccessibilityNodeInfo, depth: Int): Boolean {
-        if (depth > 20) return false
+        if (depth > 15) return false // Limit depth to prevent ANR
 
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
         val text = node.text?.toString()?.lowercase() ?: ""
+        val className = node.className?.toString()?.lowercase() ?: ""
 
         // Known YouTube Shorts view identifiers
         if (viewId.contains("shorts_container") ||
             viewId.contains("reel_watch_fragment") ||
+            viewId.contains("reel_watch_player") ||
             viewId.contains("modern_shorts_player") ||
             viewId.contains("reel_player") ||
             viewId.contains("reel_recycler") ||
             viewId.contains("shorts_shelf") ||
-            viewId.contains("reel_action")) {
+            viewId.contains("shorts_video_player") ||
+            viewId.contains("reel_action") ||
+            viewId.contains("reel_multi_format") ||
+            viewId.contains("shorts_surface_view") ||
+            viewId.contains("shorts_paused_state")) {
             return true
         }
 
-        // Selected Shorts tab
+        // Selected Shorts tab (bottom nav or pivot bar)
         if ((text == "shorts" || desc.contains("shorts")) &&
-            (node.isSelected || desc.contains("selected") || viewId.contains("pivot") || viewId.contains("tab"))) {
+            (node.isSelected || desc.contains("selected") || viewId.contains("pivot") || viewId.contains("tab") || viewId.contains("bottom_nav"))) {
             return true
         }
 
@@ -353,22 +483,60 @@ class FocusAccessibilityService : AccessibilityService() {
         if (desc.contains("sound used in this short") ||
             desc.contains("open comments for this short") ||
             desc.contains("remix this video") ||
-            desc.contains("dislike this short")) {
+            desc.contains("dislike this short") ||
+            desc.contains("like this short") ||
+            desc.contains("share this short")) {
+            return true
+        }
+
+        // Activity class check within the tree
+        if (className.contains("reelwatch") || className.contains("shortsactivity")) {
             return true
         }
 
         val childCount = node.childCount
         for (i in 0 until childCount) {
             val child = node.getChild(i) ?: continue
-            if (scanNodeForShorts(child, depth + 1)) {
-                return true
+            try {
+                if (scanNodeForShorts(child, depth + 1)) {
+                    return true
+                }
+            } finally {
+                // Recycle to prevent memory leak
+                try { child.recycle() } catch (_: Exception) {}
             }
         }
 
         return false
     }
 
+    private var lastInstagramScanTime: Long = 0L
+    private val instagramScanDebounceMs: Long = 200L
+
     private fun checkAndBlockInstagramReels(event: AccessibilityEvent) {
+        // Fast-path: event class check
+        val eventClass = event.className?.toString()?.lowercase() ?: ""
+        if (eventClass.contains("reelviewer") ||
+            eventClass.contains("clipsviewer") ||
+            eventClass.contains("reelfragment") ||
+            eventClass.contains("clipsfragment")) {
+            triggerIntervention("com.instagram.android", "instagram_reels")
+            return
+        }
+
+        val type = event.eventType
+        val isRelevant = type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                type == AccessibilityEvent.TYPE_VIEW_CLICKED ||
+                type == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
+                type == AccessibilityEvent.TYPE_VIEW_SELECTED
+
+        val now = SystemClock.elapsedRealtime()
+        if (!isRelevant && (now - lastInstagramScanTime < instagramScanDebounceMs)) {
+            return
+        }
+        lastInstagramScanTime = now
+
         val rootNode = rootInActiveWindow ?: return
         try {
             if (isInstagramReelsActive(rootNode, event)) {
@@ -381,36 +549,51 @@ class FocusAccessibilityService : AccessibilityService() {
 
     private fun isInstagramReelsActive(rootNode: AccessibilityNodeInfo, event: AccessibilityEvent?): Boolean {
         val eventClass = event?.className?.toString()?.lowercase() ?: ""
-        if (eventClass.contains("reelviewer") || eventClass.contains("clipsviewer")) {
+        if (eventClass.contains("reelviewer") || eventClass.contains("clipsviewer") ||
+            eventClass.contains("reelfragment") || eventClass.contains("clipsfragment")) {
             return true
         }
 
+        // Check for Reels tab selected in bottom navigation
         try {
             val reelsNodes = rootNode.findAccessibilityNodeInfosByText("Reels")
             for (node in reelsNodes) {
                 if (node.isSelected) return true
                 val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-                if (desc.contains("selected") || desc.contains("tab")) {
+                if (desc.contains("selected") || desc.contains("reels tab") || desc.contains("reels, tab")) {
                     return true
                 }
+                val parent = node.parent
+                if (parent != null && parent.isSelected) return true
             }
+        } catch (_: Exception) {}
+
+        // Also check for video playback context clues unique to Reels
+        try {
+            val audioNodes = rootNode.findAccessibilityNodeInfosByText("Original audio")
+            if (audioNodes.isNotEmpty()) return true
         } catch (_: Exception) {}
 
         return scanNodeForReels(rootNode, 0)
     }
 
     private fun scanNodeForReels(node: AccessibilityNodeInfo, depth: Int): Boolean {
-        if (depth > 20) return false
+        if (depth > 15) return false
 
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
         val text = node.text?.toString()?.lowercase() ?: ""
+        val className = node.className?.toString()?.lowercase() ?: ""
 
         if (viewId.contains("clips_video_container") ||
             viewId.contains("reel_viewer") ||
             viewId.contains("clips_viewer") ||
             viewId.contains("reels_tab") ||
-            viewId.contains("clips_swipe_refresh_layout")) {
+            viewId.contains("clips_swipe_refresh_layout") ||
+            viewId.contains("clips_player") ||
+            viewId.contains("reel_fragment") ||
+            viewId.contains("clips_surface") ||
+            viewId.contains("reel_surface_view")) {
             return true
         }
 
@@ -418,15 +601,24 @@ class FocusAccessibilityService : AccessibilityService() {
             return true
         }
 
-        if (desc.contains("audio for this reel") || desc.contains("remix this reel")) {
+        if (desc.contains("audio for this reel") || desc.contains("remix this reel") ||
+            desc.contains("original audio") || desc.contains("share reel")) {
+            return true
+        }
+
+        if (className.contains("reelviewer") || className.contains("clipsfragment")) {
             return true
         }
 
         val childCount = node.childCount
         for (i in 0 until childCount) {
             val child = node.getChild(i) ?: continue
-            if (scanNodeForReels(child, depth + 1)) {
-                return true
+            try {
+                if (scanNodeForReels(child, depth + 1)) {
+                    return true
+                }
+            } finally {
+                try { child.recycle() } catch (_: Exception) {}
             }
         }
         return false
@@ -435,9 +627,13 @@ class FocusAccessibilityService : AccessibilityService() {
     private fun triggerIntervention(packageName: String, reason: String) {
         val now = SystemClock.elapsedRealtime()
 
-        // Always immediately cover screen with full-screen overlay (cannot be touched or bypassed)
-        showInterventionOverlay(packageName, reason)
+        // ALWAYS immediately show overlay (no debounce on the visual blocker)
+        ensureOverlayShown(packageName, reason)
 
+        // Start persistent enforcement loop
+        startEnforcement(packageName)
+
+        // Debounce only the expensive side-effects (not the overlay)
         if (now - lastInterventionTime < debounceCooldownMs) {
             return
         }
@@ -467,13 +663,27 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private var overlayView: View? = null
+    private var currentOverlayPkg: String? = null
+
+    /**
+     * Ensures overlay is visible. If already shown for the same package, no-op.
+     * If shown for a different package, recreate. If not shown, create.
+     */
+    private fun ensureOverlayShown(pkg: String, reason: String) {
+        if (overlayView != null && currentOverlayPkg == pkg) {
+            // Overlay already showing for this package — ensure it's visible
+            overlayView?.alpha = 1f
+            return
+        }
+        // Remove any stale overlay first
+        if (overlayView != null) {
+            removeInterventionOverlayImmediate()
+        }
+        showInterventionOverlay(pkg, reason)
+    }
 
     private fun showInterventionOverlay(pkg: String, reason: String) {
         try {
-            if (overlayView != null) {
-                return
-            }
-
             val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
 
             val params = WindowManager.LayoutParams(
@@ -485,14 +695,19 @@ class FocusAccessibilityService : AccessibilityService() {
                     @Suppress("DEPRECATION")
                     WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
                 },
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                // FLAG_NOT_FOCUSABLE: don't steal keyboard focus
+                // FLAG_LAYOUT_IN_SCREEN + FLAG_FULLSCREEN: cover entire display including status/nav bars
+                // NO FLAG_NOT_TOUCH_MODAL: overlay captures ALL touch events, nothing leaks through
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                        WindowManager.LayoutParams.FLAG_FULLSCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             )
 
             val layout = createOverlayView(pkg, reason)
             overlayView = layout
+            currentOverlayPkg = pkg
             wm.addView(layout, params)
         } catch (e: Exception) {
             Log.e(TAG, "Error displaying intervention overlay: ${e.message}")
@@ -503,6 +718,7 @@ class FocusAccessibilityService : AccessibilityService() {
         try {
             val v = overlayView ?: return
             overlayView = null
+            currentOverlayPkg = null
             v.animate()
                 .alpha(0f)
                 .setDuration(160)
@@ -515,6 +731,19 @@ class FocusAccessibilityService : AccessibilityService() {
                 .start()
         } catch (e: Exception) {
             Log.e(TAG, "Error removing intervention overlay: ${e.message}")
+        }
+    }
+
+    /** Immediately remove overlay without animation (used before re-creation) */
+    private fun removeInterventionOverlayImmediate() {
+        try {
+            val v = overlayView ?: return
+            overlayView = null
+            currentOverlayPkg = null
+            val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+            wm?.removeView(v)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing intervention overlay (immediate): ${e.message}")
         }
     }
 
@@ -532,7 +761,10 @@ class FocusAccessibilityService : AccessibilityService() {
             gravity = Gravity.CENTER
             setBackgroundColor(Color.parseColor("#F209090B")) // Opaque dark overlay
             setPadding(dpToPx(24), dpToPx(24), dpToPx(24), dpToPx(24))
-            setOnTouchListener { _, _ -> true } // Consume all touches so blocked app cannot be interacted with
+            // Consume ALL touches — nothing passes through to blocked app
+            setOnTouchListener { _, _ -> true }
+            isClickable = true
+            isFocusable = true
             alpha = 0f
         }
 
@@ -579,6 +811,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 "focus_lock_active" -> "Focus Lock session is active. Zero tolerance for distractions."
                 "youtube_shorts" -> "YouTube Shorts feed intercepted to protect your attention."
                 "instagram_reels" -> "Instagram Reels loop blocked."
+                "persistent_block" -> "This app is currently blocked. Stay focused!"
                 else -> "This app is blacklisted by your Focus Guard."
             }
             setTextColor(Color.parseColor("#A1A1AA"))
@@ -638,7 +871,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 bottomMargin = dpToPx(10)
             }
             setOnClickListener {
-                removeInterventionOverlay()
+                stopEnforcement()
                 launchMainActivity(this@FocusAccessibilityService, pkg, reason)
             }
         }
@@ -662,7 +895,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 bottomMargin = dpToPx(10)
             }
             setOnClickListener {
-                removeInterventionOverlay()
+                stopEnforcement()
                 try {
                     val videoIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=kYfNvmF0Bqw")).apply {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -688,7 +921,7 @@ class FocusAccessibilityService : AccessibilityService() {
                 dpToPx(44)
             )
             setOnClickListener {
-                removeInterventionOverlay()
+                stopEnforcement()
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
         }
@@ -744,13 +977,13 @@ class FocusAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
-        removeInterventionOverlay()
+        stopEnforcement()
         instance = null
         Log.i(TAG, "FocusGuard Accessibility Service destroyed")
     }
 
     override fun onInterrupt() {
-        removeInterventionOverlay()
+        stopEnforcement()
         Log.w(TAG, "FocusGuard Accessibility Service interrupted")
     }
 }
