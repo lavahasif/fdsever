@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import 'core/services/app_navigator.dart';
 import 'core/services/apk_install_service.dart';
 import 'core/services/crash_log_service.dart';
 import 'core/services/file_transfer_service.dart';
@@ -129,6 +130,7 @@ class FDServerApp extends StatelessWidget {
     final settingsProvider = context.watch<SettingsProvider>();
 
     return ShadApp(
+      navigatorKey: appNavigatorKey,
       title: 'FDServer',
       debugShowCheckedModeBanner: false,
       themeMode: settingsProvider.themeMode,

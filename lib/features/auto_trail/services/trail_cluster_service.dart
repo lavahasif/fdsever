@@ -24,16 +24,49 @@ class TrailClusterService {
 
     List<TrailPoint> currentCluster = [];
 
-    void finalizeCluster() {
+    void finalizeCluster({DateTime? nextPointTime}) {
       if (currentCluster.isEmpty) return;
 
       final start = currentCluster.first.dateTime;
-      final end = currentCluster.last.dateTime;
+      DateTime end = currentCluster.last.dateTime;
+
+      // If nextPointTime is known, the user remained at this cluster until departing
+      if (nextPointTime != null && nextPointTime.isAfter(end)) {
+        end = nextPointTime;
+      } else if (currentCluster.length == 1) {
+        // Only stationary stops are treated as ongoing or dwellable visits
+        final isStationary = currentCluster.any((p) => p.activity == 'still' || p.activity == 'manual');
+        if (isStationary) {
+          final now = DateTime.now();
+          if (now.isAfter(start) && now.difference(start).inHours < 24) {
+            end = now;
+          } else {
+            end = start.add(const Duration(minutes: 5));
+          }
+        }
+      }
+
       final dwellSeconds = end.difference(start).inSeconds;
 
-      // Qualify as a visit if dwell time >= minDwellSeconds or if contains stationary tags
-      final hasStillActivity = currentCluster.any((p) => p.activity == 'still');
-      if (dwellSeconds >= minDwellSeconds || (currentCluster.length >= 2 && hasStillActivity)) {
+      // Qualify as a visit/stop:
+      // 1. Dwell time >= 2 minutes (120s) OR
+      // 2. Contains still/stationary activity OR
+      // 3. Multi-point cluster OR
+      // 4. Standalone stop location
+      final isStationary = currentCluster.any((p) => p.activity == 'still' || p.activity == 'manual');
+      final isTransit = currentCluster.every((p) => p.activity == 'in_vehicle' || p.activity == 'on_bicycle' || p.activity == 'running');
+
+      final bool isEligible;
+      if (isTransit && currentCluster.length == 1 && dwellSeconds < 300) {
+        // Transient moving waypoint, not a stationary visit
+        isEligible = false;
+      } else {
+        isEligible = dwellSeconds >= 120 ||
+            currentCluster.length >= 2 ||
+            isStationary;
+      }
+
+      if (isEligible) {
         // Calculate centroid
         double sumLat = 0;
         double sumLng = 0;
@@ -69,7 +102,8 @@ class TrailClusterService {
       currentCluster.clear();
     }
 
-    for (final pt in sorted) {
+    for (int i = 0; i < sorted.length; i++) {
+      final pt = sorted[i];
       if (currentCluster.isEmpty) {
         currentCluster.add(pt);
       } else {
@@ -84,7 +118,8 @@ class TrailClusterService {
         if (dist <= clusterRadiusMeters) {
           currentCluster.add(pt);
         } else {
-          finalizeCluster();
+          // Departed to a new place: finalize current cluster with pt.dateTime as departure
+          finalizeCluster(nextPointTime: pt.dateTime);
           currentCluster.add(pt);
         }
       }

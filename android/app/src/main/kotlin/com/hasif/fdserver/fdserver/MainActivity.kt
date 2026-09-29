@@ -489,8 +489,12 @@ class MainActivity : FlutterActivity() {
                         val pkgs = call.argument<List<String>>("blockedPackages")
                         val blockShorts = call.argument<Boolean>("blockShorts") ?: true
                         val isStrict = call.argument<Boolean>("isStrict") ?: FocusAccessibilityService.isStrictActive
+                        val hourlyBudget = call.argument<Int>("hourlyBudgetMinutes")
                         if (pkgs != null) {
                             FocusAccessibilityService.blockedPackages = pkgs.toMutableSet()
+                        }
+                        if (hourlyBudget != null) {
+                            FocusAccessibilityService.hourlyBudgetMinutes = hourlyBudget
                         }
                         FocusAccessibilityService.blockShortsAndReels = blockShorts
                         FocusAccessibilityService.isStrictActive = isStrict
@@ -547,6 +551,7 @@ class MainActivity : FlutterActivity() {
                             "isServiceRunning" to FocusAccessibilityService.isServiceRunning(),
                             "isStrictActive" to FocusAccessibilityService.isStrictActive,
                             "blockShorts" to FocusAccessibilityService.blockShortsAndReels,
+                            "hourlyBudgetMinutes" to FocusAccessibilityService.hourlyBudgetMinutes,
                             "blockedPackages" to FocusAccessibilityService.blockedPackages.toList(),
                             "temptationsCount" to FocusAccessibilityService.getTemptationsCount(this)
                         )

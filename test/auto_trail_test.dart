@@ -122,5 +122,34 @@ void main() {
       expect(visits.first.duration.inMinutes, 15);
       expect(visits.first.durationString, contains('15m'));
     });
+
+    test('TrailClusterService detects single-point stationary stay when battery saver drops duplicate points', () {
+      final baseTime = DateTime(2026, 9, 27, 10, 0);
+
+      // Point 1: At office, stationary for 45 minutes before departure to another place
+      final singlePointStop = [
+        TrailPoint(
+          id: 1,
+          latitude: 25.2048,
+          longitude: 55.2708,
+          address: 'Office Hub',
+          timestamp: baseTime.millisecondsSinceEpoch,
+          activity: 'still',
+        ),
+        TrailPoint(
+          id: 2,
+          latitude: 25.2500, // 5km away, departed 45 mins later
+          longitude: 55.3000,
+          address: 'Highway East',
+          timestamp: baseTime.add(const Duration(minutes: 45)).millisecondsSinceEpoch,
+          activity: 'in_vehicle',
+        ),
+      ];
+
+      final visits = TrailClusterService.detectVisits(singlePointStop);
+      expect(visits.isNotEmpty, isTrue);
+      expect(visits.first.locationName, 'Office Hub');
+      expect(visits.first.duration.inMinutes, 45);
+    });
   });
 }

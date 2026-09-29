@@ -6,6 +6,7 @@ import '../../../shared/widgets/resource_telemetry_modal.dart';
 import '../providers/focus_guard_provider.dart';
 import '../services/focus_guard_bridge.dart';
 import 'app_blacklist_screen.dart';
+import 'motivation_reader_screen.dart';
 import 'reality_check_screen.dart';
 
 class FocusGuardHubScreen extends StatefulWidget {
@@ -95,11 +96,12 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
     final provider = context.watch<FocusGuardProvider>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Automatic push of Reality Check screen if an intervention was triggered
-    if (provider.pendingIntervention != null) {
+    // Fallback push of Reality Check screen if an intervention was triggered and auto-divert is disabled
+    if (provider.pendingIntervention != null && !provider.autoDivertEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final alert = provider.pendingIntervention;
         if (alert != null) {
+          provider.clearPendingIntervention();
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => RealityCheckScreen(
@@ -126,6 +128,16 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
 
             // Goal Anchor Banner
             _buildGoalBanner(context, provider),
+
+            const SizedBox(height: 20),
+
+            // Hourly App Usage Quota Card
+            _buildHourlyBudgetCard(context, provider),
+
+            const SizedBox(height: 20),
+
+            // Auto-Diversion Motivation Engine Card
+            _buildDiversionModeCard(context, provider),
 
             const SizedBox(height: 20),
 
@@ -573,9 +585,254 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
     );
   }
 
+  Widget _buildHourlyBudgetCard(BuildContext context, FocusGuardProvider provider) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF18181B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(LucideIcons.hourglass, color: Color(0xFF60A5FA), size: 18),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Hourly App Usage Quota',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      'Rolling 1-hour usage allowance for blacklisted apps',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFA1A1AA)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _buildHourlyBudgetOption(provider, 0, 'Strict Lock (0m)', 'Zero tolerance'),
+              const SizedBox(width: 8),
+              _buildHourlyBudgetOption(provider, 5, '5 min / hour', 'Quick check only'),
+              const SizedBox(width: 8),
+              _buildHourlyBudgetOption(provider, 10, '10 min / hour', 'Moderate cap'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF27272A).withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(LucideIcons.info, size: 14, color: Color(0xFF93C5FD)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    provider.hourlyBudgetMinutes == 0
+                        ? 'Strict 0m mode: Blacklisted apps will be instantly blocked upon open.'
+                        : 'Allowed up to ${provider.hourlyBudgetMinutes}m per rolling 1 hour. Exceeding automatically diverts to motivation.',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFFCBD5E1)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHourlyBudgetOption(FocusGuardProvider provider, int minutes, String title, String subtitle) {
+    final isSelected = provider.hourlyBudgetMinutes == minutes;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => provider.setHourlyBudgetMinutes(minutes),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF1E3A8A) : const Color(0xFF27272A),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF60A5FA) : const Color(0xFF3F3F46),
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  color: isSelected ? Colors.white : const Color(0xFFE4E4E7),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: isSelected ? const Color(0xFF93C5FD) : const Color(0xFF71717A),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiversionModeCard(BuildContext context, FocusGuardProvider provider) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF18181B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(LucideIcons.compass, color: Color(0xFFA78BFA), size: 18),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Automatic Distraction Diversion',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      'Redirect your brain from dopamine scrolling to growth',
+                      style: TextStyle(fontSize: 11, color: Color(0xFFA1A1AA)),
+                    ),
+                  ],
+                ),
+              ),
+              Switch.adaptive(
+                value: provider.autoDivertEnabled,
+                activeColor: const Color(0xFF8B5CF6),
+                onChanged: (val) => provider.setAutoDivertEnabled(val),
+              ),
+            ],
+          ),
+          if (provider.autoDivertEnabled) ...[
+            const SizedBox(height: 14),
+            const Text(
+              'When you open Reels/Shorts or exceed hourly quota, divert to:',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFA1A1AA)),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _buildDiversionOption(provider, 'pdf', '📖 Motivation PDF', 'Deep Work & Books'),
+                const SizedBox(width: 8),
+                _buildDiversionOption(provider, 'video', '🎬 Video Boost', 'High-Energy Pep'),
+                const SizedBox(width: 8),
+                _buildDiversionOption(provider, 'reality_screen', '🛡️ Reality Check', 'Harsh Truth & Math'),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiversionOption(FocusGuardProvider provider, String type, String title, String subtitle) {
+    final isSelected = provider.diversionType == type;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => provider.setDiversionType(type),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF4C1D95) : const Color(0xFF27272A),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? const Color(0xFFA78BFA) : const Color(0xFF3F3F46),
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  color: isSelected ? Colors.white : const Color(0xFFE4E4E7),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 8.5,
+                  color: isSelected ? const Color(0xFFDDD6FE) : const Color(0xFF71717A),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildActionButtons(BuildContext context, FocusGuardProvider provider) {
     return Column(
       children: [
+        ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFF7C3AED)),
+          ),
+          tileColor: const Color(0xFF4C1D95).withValues(alpha: 0.25),
+          leading: const Icon(LucideIcons.bookOpen, color: Color(0xFFA78BFA)),
+          title: const Text('Open Motivation Guide & PDF Reader', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          subtitle: const Text('4 mindset chapters, custom PDF picker, and motivational video launcher', style: TextStyle(color: Color(0xFFDDD6FE), fontSize: 11)),
+          trailing: const Icon(LucideIcons.chevronRight, color: Color(0xFFA78BFA)),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MotivationReaderScreen()),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
         ListTile(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),

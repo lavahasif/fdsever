@@ -110,6 +110,7 @@ class FocusGuardBridge {
     required List<String> blockedPackages,
     required bool blockShorts,
     bool? isStrict,
+    int? hourlyBudgetMinutes,
   }) async {
     if (kIsWeb || !Platform.isAndroid) return true;
     try {
@@ -117,6 +118,7 @@ class FocusGuardBridge {
         'blockedPackages': blockedPackages,
         'blockShorts': blockShorts,
         if (isStrict != null) 'isStrict': isStrict,
+        if (hourlyBudgetMinutes != null) 'hourlyBudgetMinutes': hourlyBudgetMinutes,
       });
       return res ?? false;
     } catch (e) {
@@ -139,12 +141,14 @@ class FocusGuardBridge {
   static Future<bool> startFocusLock({
     required List<String> blockedPackages,
     bool blockShorts = true,
+    int? hourlyBudgetMinutes,
   }) async {
     if (kIsWeb || !Platform.isAndroid) return true;
     try {
       final res = await _channel.invokeMethod<bool>('startFocusLock', {
         'blockedPackages': blockedPackages,
         'blockShorts': blockShorts,
+        if (hourlyBudgetMinutes != null) 'hourlyBudgetMinutes': hourlyBudgetMinutes,
       });
       return res ?? false;
     } catch (e) {
@@ -170,6 +174,7 @@ class FocusGuardBridge {
         'isServiceRunning': false,
         'isStrictActive': false,
         'blockShorts': true,
+        'hourlyBudgetMinutes': 5,
         'blockedPackages': <String>[],
         'temptationsCount': 0,
       };

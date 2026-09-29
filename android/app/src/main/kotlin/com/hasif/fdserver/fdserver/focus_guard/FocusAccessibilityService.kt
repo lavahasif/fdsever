@@ -17,9 +17,32 @@ class FocusAccessibilityService : AccessibilityService() {
         private const val TAG = "FocusGuardService"
         private const val PREFS_NAME = "focus_guard_native_prefs"
         private const val KEY_IS_ACTIVE = "focus_guard_active"
-        private const val KEY_BLOCK_SHORTS = "focus_guard_block_shorts"
-        private const val KEY_BLOCKED_PACKAGES = "focus_guard_blocked_pkgs"
-        private const val KEY_TEMPTATIONS_BLOCKED = "focus_guard_temptations_count"
+        private const val KEY_HOURLY_BUDGET = "focus_guard_hourly_budget"
+        var hourlyBudgetMinutes: Int = 5 // 0 = strict instant block, 5 = 5m/hr, 10 = 10m/hr
+
+        // Track foreground usage in rolling 1-hour window: pkg -> (timestampMs, durationMs)
+        private val usageHistory = mutableMapOf<String, MutableList<Pair<Long, Long>>>()
+        private var activeForegroundPkg: String? = null
+        private var activePkgStartTime: Long = 0L
+
+        fun recordUsage(pkg: String, durationMs: Long) {
+            val list = usageHistory.getOrPut(pkg) { mutableListOf() }
+            val now = System.currentTimeMillis()
+            list.add(Pair(now, durationMs))
+            pruneUsage(list, now)
+        }
+
+        fun getUsageInLastHourMs(pkg: String): Long {
+            val list = usageHistory[pkg] ?: return 0L
+            val now = System.currentTimeMillis()
+            pruneUsage(list, now)
+            return list.sumOf { it.second }
+        }
+
+        private fun pruneUsage(list: MutableList<Pair<Long, Long>>, now: Long) {
+            val oneHourAgo = now - 3600_000L
+            list.removeAll { it.first < oneHourAgo }
+        }
 
         var instance: FocusAccessibilityService? = null
             private set
@@ -44,6 +67,7 @@ class FocusAccessibilityService : AccessibilityService() {
             prefs.edit()
                 .putBoolean(KEY_IS_ACTIVE, isStrictActive)
                 .putBoolean(KEY_BLOCK_SHORTS, blockShortsAndReels)
+                .putInt(KEY_HOURLY_BUDGET, hourlyBudgetMinutes)
                 .putStringSet(KEY_BLOCKED_PACKAGES, blockedPackages)
                 .apply()
         }
@@ -52,6 +76,7 @@ class FocusAccessibilityService : AccessibilityService() {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             isStrictActive = prefs.getBoolean(KEY_IS_ACTIVE, false)
             blockShortsAndReels = prefs.getBoolean(KEY_BLOCK_SHORTS, true)
+            hourlyBudgetMinutes = prefs.getInt(KEY_HOURLY_BUDGET, 5)
             val savedPkgs = prefs.getStringSet(KEY_BLOCKED_PACKAGES, null)
             if (savedPkgs != null) {
                 blockedPackages = savedPkgs.toMutableSet()
@@ -92,7 +117,7 @@ class FocusAccessibilityService : AccessibilityService() {
             Log.e(TAG, "Error configuring service info: ${e.message}")
         }
 
-        Log.i(TAG, "FocusGuard Accessibility Service connected (active=$isStrictActive, blockShorts=$blockShortsAndReels)")
+        Log.i(TAG, "FocusGuard Accessibility Service connected (active=$isStrictActive, blockShorts=$blockShortsAndReels, budget=${hourlyBudgetMinutes}m/h)")
     }
 
     override fun onDestroy() {
@@ -109,10 +134,38 @@ class FocusAccessibilityService : AccessibilityService() {
         // Never intercept or block fdserver itself
         if (packageName == this.packageName) return
 
-        // 1. Blacklisted Apps (during Strict Focus Lock)
-        if (isStrictActive && blockedPackages.contains(packageName)) {
-            triggerIntervention(packageName, "blacklisted_app")
-            return
+        val nowRealtime = SystemClock.elapsedRealtime()
+
+        // Track foreground transitions to log usage in 1-hour window
+        if (activeForegroundPkg != null && activeForegroundPkg != packageName) {
+            val elapsed = nowRealtime - activePkgStartTime
+            if (elapsed > 1000) {
+                recordUsage(activeForegroundPkg!!, elapsed)
+            }
+            activeForegroundPkg = packageName
+            activePkgStartTime = nowRealtime
+        } else if (activeForegroundPkg == null) {
+            activeForegroundPkg = packageName
+            activePkgStartTime = nowRealtime
+        }
+
+        val isBlockedPkg = blockedPackages.contains(packageName)
+
+        // 1. Blacklisted Apps (Quota enforcement: 0m, 5m, or 10m in 1 hour)
+        if (isBlockedPkg) {
+            if (hourlyBudgetMinutes <= 0) {
+                // Strict 0-tolerance mode: zero usage permitted
+                triggerIntervention(packageName, "blacklisted_app")
+                return
+            } else {
+                val elapsedCurrent = nowRealtime - activePkgStartTime
+                val totalUsedMs = getUsageInLastHourMs(packageName) + elapsedCurrent
+                val maxAllowedMs = hourlyBudgetMinutes * 60_000L
+                if (totalUsedMs >= maxAllowedMs) {
+                    triggerIntervention(packageName, "hourly_quota_exceeded")
+                    return
+                }
+            }
         }
 
         // 2. Continuous Shorts & Reels Shield (runs whenever shield is enabled)

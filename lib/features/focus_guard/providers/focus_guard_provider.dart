@@ -3,8 +3,12 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/services/app_navigator.dart';
 import '../models/focus_config_model.dart';
+import '../screens/motivation_reader_screen.dart';
+import '../screens/reality_check_screen.dart';
 import '../services/focus_guard_bridge.dart';
 
 class InterventionAlert {
@@ -26,9 +30,15 @@ class FocusGuardProvider extends ChangeNotifier {
   static const String _keyEndTime = 'focus_guard_end_time';
   static const String _keyTemptations = 'focus_guard_temptations';
   static const String _keyMinutesSaved = 'focus_guard_minutes_saved';
+  static const String _keyHourlyBudget = 'focus_guard_hourly_budget';
+  static const String _keyDiversionType = 'focus_guard_diversion_type';
+  static const String _keyAutoDivert = 'focus_guard_auto_divert';
 
   bool _isLockActive = false;
   bool _blockShortsAndReels = true;
+  int _hourlyBudgetMinutes = 5; // 0 (strict), 5m, 10m allowed per hour
+  String _diversionType = 'pdf'; // 'pdf' | 'video' | 'reality_screen'
+  bool _autoDivertEnabled = true;
   String _targetGoal = 'Build great software & achieve financial freedom';
   int _sessionDurationMinutes = 25;
   int _remainingSeconds = 0;
@@ -67,6 +77,9 @@ class FocusGuardProvider extends ChangeNotifier {
   // Getters
   bool get isLockActive => _isLockActive;
   bool get blockShortsAndReels => _blockShortsAndReels;
+  int get hourlyBudgetMinutes => _hourlyBudgetMinutes;
+  String get diversionType => _diversionType;
+  bool get autoDivertEnabled => _autoDivertEnabled;
   String get targetGoal => _targetGoal;
   int get remainingSeconds => _remainingSeconds;
   int get sessionDurationMinutes => _sessionDurationMinutes;
@@ -94,6 +107,7 @@ class FocusGuardProvider extends ChangeNotifier {
       blockedPackages: activePkgs,
       blockShorts: _blockShortsAndReels,
       isStrict: _isLockActive,
+      hourlyBudgetMinutes: _hourlyBudgetMinutes,
     );
   }
 
@@ -122,6 +136,47 @@ class FocusGuardProvider extends ChangeNotifier {
     );
     _saveStats();
     notifyListeners();
+
+    if (_autoDivertEnabled) {
+      _executeDiversion(packageName, reason);
+    }
+  }
+
+  Future<void> _executeDiversion(String packageName, String reason) async {
+    try {
+      if (_diversionType == 'video') {
+        const videoUrl = 'https://www.youtube.com/watch?v=kYfNvmF0Bqw';
+        final uri = Uri.parse(videoUrl);
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (_diversionType == 'reality_screen') {
+        final nav = appNavigatorKey.currentState;
+        if (nav != null) {
+          nav.push(
+            MaterialPageRoute(
+              builder: (_) => RealityCheckScreen(
+                blockedPackage: packageName,
+                blockReason: reason,
+              ),
+            ),
+          );
+        }
+      } else {
+        // Default 'pdf' / Motivation Guide
+        final nav = appNavigatorKey.currentState;
+        if (nav != null) {
+          nav.push(
+            MaterialPageRoute(
+              builder: (_) => MotivationReaderScreen(
+                reason: reason,
+                blockedPackage: packageName,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error triggering auto-diversion: $e');
+    }
   }
 
   void clearPendingIntervention() {
@@ -155,6 +210,9 @@ class FocusGuardProvider extends ChangeNotifier {
     _blockShortsAndReels = prefs.getBool(_keyBlockShorts) ?? true;
     _temptationsResisted = prefs.getInt(_keyTemptations) ?? 0;
     _minutesSaved = prefs.getInt(_keyMinutesSaved) ?? 0;
+    _hourlyBudgetMinutes = prefs.getInt(_keyHourlyBudget) ?? 5;
+    _diversionType = prefs.getString(_keyDiversionType) ?? 'pdf';
+    _autoDivertEnabled = prefs.getBool(_keyAutoDivert) ?? true;
 
     final appsJson = prefs.getString(_keyBlockedApps);
     if (appsJson != null) {
@@ -176,6 +234,28 @@ class FocusGuardProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyTemptations, _temptationsResisted);
     await prefs.setInt(_keyMinutesSaved, _minutesSaved);
+  }
+
+  Future<void> setHourlyBudgetMinutes(int minutes) async {
+    _hourlyBudgetMinutes = minutes;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyHourlyBudget, minutes);
+    await syncConfigToNative();
+    notifyListeners();
+  }
+
+  Future<void> setDiversionType(String type) async {
+    _diversionType = type;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyDiversionType, type);
+    notifyListeners();
+  }
+
+  Future<void> setAutoDivertEnabled(bool enabled) async {
+    _autoDivertEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyAutoDivert, enabled);
+    notifyListeners();
   }
 
   Future<void> setGoal(String newGoal) async {
@@ -247,6 +327,7 @@ class FocusGuardProvider extends ChangeNotifier {
     final success = await FocusGuardBridge.startFocusLock(
       blockedPackages: activePkgs,
       blockShorts: _blockShortsAndReels,
+      hourlyBudgetMinutes: _hourlyBudgetMinutes,
     );
 
     if (success) {

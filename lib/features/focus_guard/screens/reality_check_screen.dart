@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/focus_config_model.dart';
 import '../providers/focus_guard_provider.dart';
+import 'motivation_reader_screen.dart';
 
 class RealityCheckScreen extends StatefulWidget {
   final String? blockedPackage;
@@ -300,7 +302,59 @@ class _RealityCheckScreenState extends State<RealityCheckScreen> {
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+
+              // Educational Diversion Row
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFA78BFA),
+                        side: const BorderSide(color: Color(0xFF7C3AED)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () {
+                        provider.clearPendingIntervention();
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (_) => MotivationReaderScreen(
+                              reason: widget.blockReason,
+                              blockedPackage: widget.blockedPackage,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(LucideIcons.bookOpen, size: 16),
+                      label: const Text('Read Mindset Guide', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFEF4444),
+                        side: const BorderSide(color: Color(0xFFEF4444)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () async {
+                        provider.clearPendingIntervention();
+                        const videoUrl = 'https://www.youtube.com/watch?v=kYfNvmF0Bqw';
+                        final uri = Uri.parse(videoUrl);
+                        try {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        } catch (_) {}
+                      },
+                      icon: const Icon(LucideIcons.video, size: 16),
+                      label: const Text('Watch Pep Video', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 14),
 
               // Emergency Hardcore Unlock Toggle
               TextButton(
