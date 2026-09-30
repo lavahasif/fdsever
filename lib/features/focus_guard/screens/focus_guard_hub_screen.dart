@@ -465,11 +465,11 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
               ),
               onPressed: () async {
                 final started = await provider.startFocusLock();
-                if (!started && !provider.isAccessibilityGranted) {
+                if (!started && !provider.isAccessibilityGranted && !provider.hasUsageStats) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Please enable FocusGuard in Accessibility settings first!'),
+                        content: Text('Please grant Usage Access (or Accessibility) to enable Focus Guard!'),
                         backgroundColor: Color(0xFFEF4444),
                       ),
                     );

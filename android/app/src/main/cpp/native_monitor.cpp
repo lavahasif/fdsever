@@ -372,15 +372,34 @@ static void* monitorLoop(void* arg) {
         }
         
         // ─── Query foreground package via JNI ───────────────────────────
+        if (g_bridge_class == nullptr || g_get_foreground_method == nullptr) {
+            jclass localClass = env->FindClass("com/hasif/fdserver/fdserver/focus_guard/NativeMonitorBridge");
+            if (localClass != nullptr) {
+                g_bridge_class = (jclass)env->NewGlobalRef(localClass);
+                env->DeleteLocalRef(localClass);
+                g_get_foreground_method = env->GetStaticMethodID(
+                    g_bridge_class, "getForegroundPackage", "()Ljava/lang/String;");
+                g_on_blocked_method = env->GetStaticMethodID(
+                    g_bridge_class, "onBlockedAppDetected",
+                    "(Ljava/lang/String;Ljava/lang/String;)V");
+            }
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
+        }
+
         jstring fg_pkg = nullptr;
-        bool jni_ok = true;
+        bool jni_ok = false;
         
-        fg_pkg = (jstring)env->CallStaticObjectMethod(
-            g_bridge_class, g_get_foreground_method);
-        
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-            jni_ok = false;
+        if (g_bridge_class != nullptr && g_get_foreground_method != nullptr) {
+            fg_pkg = (jstring)env->CallStaticObjectMethod(
+                g_bridge_class, g_get_foreground_method);
+            
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            } else {
+                jni_ok = true;
+            }
         }
         
         g_total_polls.fetch_add(1, std::memory_order_relaxed);

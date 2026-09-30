@@ -502,6 +502,27 @@ class MainActivity : FlutterActivity() {
                         FocusAccessibilityService.blockShortsAndReels = blockShorts
                         FocusAccessibilityService.isStrictActive = isStrict
                         FocusAccessibilityService.saveConfig(this)
+
+                        // Dual engine: Sync config to NDK engine
+                        NativeMonitorBridge.safeSetBlockedPackages(FocusAccessibilityService.blockedPackages)
+                        if (NativeMonitorBridge.isLoaded()) {
+                            try { NativeMonitorBridge.nativeSetStrictMode(isStrict) } catch (_: Throwable) {}
+                        }
+
+                        // Auto-start NDK monitor service if accessibility is OFF and strict lock is active
+                        if (!FocusAccessibilityService.isServiceRunning() && isStrict) {
+                            try {
+                                val serviceIntent = Intent(this, NativeMonitorService::class.java).apply {
+                                    action = NativeMonitorService.ACTION_START
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    startForegroundService(serviceIntent)
+                                } else {
+                                    startService(serviceIntent)
+                                }
+                            } catch (_: Throwable) {}
+                        }
+
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("SYNC_CONFIG_ERROR", e.message, null)
@@ -537,6 +558,25 @@ class MainActivity : FlutterActivity() {
                         FocusAccessibilityService.blockShortsAndReels = blockShorts
                         FocusAccessibilityService.isStrictActive = true
                         FocusAccessibilityService.saveConfig(this)
+
+                        // Dual engine: Sync packages & start NDK monitor
+                        NativeMonitorBridge.safeSetBlockedPackages(FocusAccessibilityService.blockedPackages)
+                        if (NativeMonitorBridge.isLoaded()) {
+                            try { NativeMonitorBridge.nativeSetStrictMode(true) } catch (_: Throwable) {}
+                        }
+
+                        // Always start NativeMonitorService when focus lock starts
+                        try {
+                            val serviceIntent = Intent(this, NativeMonitorService::class.java).apply {
+                                action = NativeMonitorService.ACTION_START
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(serviceIntent)
+                            } else {
+                                startService(serviceIntent)
+                            }
+                        } catch (_: Throwable) {}
+
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("START_FOCUS_ERROR", e.message, null)
@@ -546,6 +586,19 @@ class MainActivity : FlutterActivity() {
                     try {
                         FocusAccessibilityService.isStrictActive = false
                         FocusAccessibilityService.saveConfig(this)
+
+                        if (NativeMonitorBridge.isLoaded()) {
+                            try { NativeMonitorBridge.nativeSetStrictMode(false) } catch (_: Throwable) {}
+                        }
+
+                        // Stop NativeMonitorService if accessibility is also not running
+                        try {
+                            val serviceIntent = Intent(this, NativeMonitorService::class.java).apply {
+                                action = NativeMonitorService.ACTION_STOP
+                            }
+                            startService(serviceIntent)
+                        } catch (_: Throwable) {}
+
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("STOP_FOCUS_ERROR", e.message, null)
@@ -554,8 +607,11 @@ class MainActivity : FlutterActivity() {
                 "getStatus" -> {
                     try {
                         FocusAccessibilityService.loadConfig(this)
+                        val isAnyRunning = FocusAccessibilityService.isServiceRunning() || NativeMonitorService.isRunning
                         val map = mapOf(
-                            "isServiceRunning" to FocusAccessibilityService.isServiceRunning(),
+                            "isServiceRunning" to isAnyRunning,
+                            "isAccessibilityRunning" to FocusAccessibilityService.isServiceRunning(),
+                            "isNativeRunning" to NativeMonitorService.isRunning,
                             "isStrictActive" to FocusAccessibilityService.isStrictActive,
                             "blockShorts" to FocusAccessibilityService.blockShortsAndReels,
                             "hourlyBudgetMinutes" to FocusAccessibilityService.hourlyBudgetMinutes,

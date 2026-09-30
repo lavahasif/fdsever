@@ -529,8 +529,8 @@ class FocusGuardProvider extends ChangeNotifier {
     }
 
     await checkPermissions();
-    if (!_isAccessibilityGranted) {
-      await FocusGuardBridge.openAccessibilitySettings();
+    if (!_isAccessibilityGranted && !_hasUsageStats) {
+      await FocusGuardBridge.openUsageStatsSettings();
       return false;
     }
 

@@ -1,6 +1,7 @@
 package com.hasif.fdserver.fdserver.focus_guard
 
 import android.app.PendingIntent
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -52,7 +53,7 @@ class NativeMonitorBridge {
 
         /**
          * Called from C++ native thread to get the current foreground package.
-         * Uses UsageStatsManager which requires PACKAGE_USAGE_STATS permission.
+         * Uses UsageStatsManager queryEvents (real-time millisecond accuracy).
          * Returns null if unable to determine foreground app.
          */
         @JvmStatic
@@ -63,54 +64,89 @@ class NativeMonitorBridge {
                         as? UsageStatsManager ?: return null
 
                 val now = System.currentTimeMillis()
-                // Query last 5 seconds for the most recently used app
-                val stats = usm.queryUsageStats(
-                    UsageStatsManager.INTERVAL_BEST,
-                    now - 5_000,
-                    now
-                )
 
-                if (stats.isNullOrEmpty()) return null
-
-                // Find the app with the most recent lastTimeUsed timestamp
+                // 1. Primary real-time check: queryEvents with ACTIVITY_RESUMED
+                val events = usm.queryEvents(now - 10_000, now)
+                val event = UsageEvents.Event()
                 var latestPkg: String? = null
                 var latestTime = 0L
-                for (s in stats) {
-                    if (s.lastTimeUsed > latestTime && s.totalTimeInForeground > 0) {
-                        latestTime = s.lastTimeUsed
-                        latestPkg = s.packageName
+
+                while (events.hasNextEvent()) {
+                    events.getNextEvent(event)
+                    if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
+                        event.eventType == 1) {
+                        if (event.timeStamp >= latestTime) {
+                            latestTime = event.timeStamp
+                            latestPkg = event.packageName
+                        }
                     }
                 }
 
-                // Filter out our own package and system packages
+                // 2. Fallback to queryUsageStats if no events found in window
+                if (latestPkg == null) {
+                    val stats = usm.queryUsageStats(
+                        UsageStatsManager.INTERVAL_BEST,
+                        now - 10_000,
+                        now
+                    )
+                    if (!stats.isNullOrEmpty()) {
+                        for (s in stats) {
+                            if (s.lastTimeUsed > latestTime) {
+                                latestTime = s.lastTimeUsed
+                                latestPkg = s.packageName
+                            }
+                        }
+                    }
+                }
+
+                if (latestPkg == null) return null
+
+                // Filter out our own package and system launchers
                 if (latestPkg == ctx.packageName) return null
                 if (latestPkg == "com.android.systemui") return null
-                if (latestPkg == "com.android.launcher3") return null
-                if (latestPkg == "com.google.android.apps.nexuslauncher") return null
+                if (latestPkg == "com.android.launcher" ||
+                    latestPkg == "com.android.launcher3" ||
+                    latestPkg == "com.google.android.apps.nexuslauncher" ||
+                    latestPkg.contains("launcher") ||
+                    latestPkg.contains("home")) {
+                    return null
+                }
 
                 return latestPkg
             } catch (e: SecurityException) {
                 Log.w(TAG, "UsageStats permission not granted: ${e.message}")
                 return null
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting foreground package: ${e.message}")
+            } catch (e: Throwable) {
                 return null
             }
         }
 
         /**
          * Called from C++ native thread when a blocked app is detected.
-         * Triggers the same intervention flow as the Accessibility Service.
+         * Minimizes the blocked app immediately and brings up the intervention flow.
          */
         @JvmStatic
         fun onBlockedAppDetected(packageName: String, reason: String) {
             val ctx = appContext ?: return
             Log.w(TAG, "⛔ Native blocker detected: $packageName ($reason)")
 
-            // 1. Notify active Flutter listener (if app is in foreground)
-            FocusAccessibilityService.listener?.invoke(packageName, reason)
+            // 1. Kick user out of blocked app immediately to Home
+            try {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                }
+                ctx.startActivity(homeIntent)
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to send HOME intent: ${e.message}")
+            }
 
-            // 2. Persist for cold-start pickup by Flutter
+            // 2. Notify active Flutter listener (if app is already in foreground)
+            try {
+                FocusAccessibilityService.listener?.invoke(packageName, reason)
+            } catch (_: Throwable) {}
+
+            // 3. Persist for cold-start pickup by Flutter
             try {
                 val prefs = ctx.getSharedPreferences("focus_guard_native_prefs", Context.MODE_PRIVATE)
                 prefs.edit()
@@ -118,15 +154,14 @@ class NativeMonitorBridge {
                     .putString("pending_intervention_reason", reason)
                     .putLong("pending_intervention_time", System.currentTimeMillis())
                     .apply()
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
 
-            // 3. Increment temptation counter
+            // 4. Increment temptation counter
             try {
                 FocusAccessibilityService.incrementTemptationsCount(ctx)
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
 
-            // 4. Launch MainActivity with intervention intent (via PendingIntent to bypass
-            //    Android 10+ background activity restrictions)
+            // 5. Launch MainActivity with intervention intent
             try {
                 val intent = Intent(ctx, MainActivity::class.java).apply {
                     action = "com.hasif.fdserver.FOCUS_INTERVENTION"
@@ -143,9 +178,7 @@ class NativeMonitorBridge {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 pendingIntent.send()
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to launch intervention activity: ${e.message}")
-                // Fallback: try direct startActivity
+            } catch (e: Throwable) {
                 try {
                     val fallbackIntent = Intent(ctx, MainActivity::class.java).apply {
                         action = "com.hasif.fdserver.FOCUS_INTERVENTION"
@@ -154,7 +187,7 @@ class NativeMonitorBridge {
                         putExtra("block_reason", reason)
                     }
                     ctx.startActivity(fallbackIntent)
-                } catch (_: Exception) {}
+                } catch (_: Throwable) {}
             }
         }
 
