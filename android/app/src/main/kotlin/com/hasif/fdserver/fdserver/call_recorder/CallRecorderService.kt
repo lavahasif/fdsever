@@ -73,7 +73,7 @@ class CallRecorderService : Service() {
                 val phoneNumber = intent.getStringExtra(EXTRA_PHONE_NUMBER) ?: "Unknown"
                 currentPhoneNumber = phoneNumber
                 val path = intent.getStringExtra(EXTRA_FILE_PATH) ?: generateDefaultFilePath(phoneNumber)
-                val gain = intent.getFloatExtra(EXTRA_GAIN, 1.8f)
+                val gain = intent.getFloatExtra(EXTRA_GAIN, 3.5f)
 
                 startForegroundWithNotification(path, phoneNumber)
                 startRecording(path, gain)

@@ -41,7 +41,7 @@ class CallRecorderBridge {
     }
   }
 
-  static Future<bool> startRecording({String? path, double gain = 1.8, String? phoneNumber}) async {
+  static Future<bool> startRecording({String? path, double gain = 3.5, String? phoneNumber}) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     init();
     try {
@@ -101,7 +101,7 @@ class CallRecorderBridge {
     }
   }
 
-  static Future<bool> setAutoRecord(bool enabled, {double gain = 1.8}) async {
+  static Future<bool> setAutoRecord(bool enabled, {double gain = 3.5}) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     init();
     try {
@@ -213,6 +213,18 @@ class CallRecorderBridge {
       final res = await _channel.invokeMethod<bool>('seekAudio', {'positionMs': positionMs});
       return res ?? false;
     } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> openWithExternalPlayer(String path) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    init();
+    try {
+      final res = await _channel.invokeMethod<bool>('openWithExternalPlayer', {'path': path});
+      return res ?? false;
+    } catch (e) {
+      debugPrint('Error launching external audio player: $e');
       return false;
     }
   }

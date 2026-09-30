@@ -40,12 +40,12 @@ class AudioRecordEngine {
     var activeSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION
         private set
 
-    var gainMultiplier: Float = 1.8f // High-gain acoustic boost for receiver clarity
+    var gainMultiplier: Float = 3.5f // High-gain acoustic boost for receiver clarity
     var onAmplitudeUpdated: ((amplitude: Int) -> Unit)? = null
     var onStatusChanged: ((status: String) -> Unit)? = null
 
     @SuppressLint("MissingPermission")
-    fun startCapture(filePath: String, boostGain: Float = 1.8f): Boolean {
+    fun startCapture(filePath: String, boostGain: Float = 3.5f): Boolean {
         if (isRecording) {
             Log.w(TAG, "Already recording")
             return true
@@ -53,25 +53,25 @@ class AudioRecordEngine {
 
         gainMultiplier = boostGain
 
-        // Priority 1: VOICE_RECOGNITION - Android AudioPolicy grants concurrent capture priority during calls
-        // Priority 2: MIC - Standard hardware mic
-        // Priority 3: VOICE_COMMUNICATION - VoIP/Communication tuned
-        // Priority 4: CAMCORDER - Secondary mic bypasses primary in-call audio routing on many devices
-        // Priority 5: UNPROCESSED - Direct raw audio stream
-        // Priority 6: DEFAULT - OS default
+        // Priority 1: MIC - Standard raw hardware microphone (avoids telecom DSP cancellation)
+        // Priority 2: CAMCORDER - Wide dynamic range microphone (often physically near earpiece, no voice gating)
+        // Priority 3: UNPROCESSED - Direct raw audio stream (API 24+) without noise gating
+        // Priority 4: VOICE_RECOGNITION - Android AudioPolicy grants concurrent capture priority during calls
+        // Priority 5: DEFAULT - OS default audio input
+        // Priority 6: VOICE_COMMUNICATION - Fallback VoIP/Communication tuned
         val candidateSources = intArrayOf(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.CAMCORDER,
             MediaRecorder.AudioSource.UNPROCESSED,
-            MediaRecorder.AudioSource.DEFAULT
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION
         )
 
         var record: AudioRecord? = null
         var chosenSampleRate = 16000
         var chosenBufferSize = 4096
-        var chosenSource = MediaRecorder.AudioSource.VOICE_RECOGNITION
+        var chosenSource = MediaRecorder.AudioSource.MIC
 
         // Retry loop: phone call audio HAL transition (switching to MODE_IN_CALL) can take 200-500ms
         val maxRetries = 3
@@ -119,7 +119,10 @@ class AudioRecordEngine {
         activeSampleRate = chosenSampleRate
         activeSource = chosenSource
 
-        // Attach hardware effects safely if supported
+        // NOTE: We deliberately DO NOT attach AcousticEchoCanceler (AEC) or NoiseSuppressor (NS).
+        // AEC identifies audio emerging from the phone's speaker/earpiece as echo and actively silences it,
+        // which makes the remote caller voice completely inaudible!
+        // We only enable AutomaticGainControl (AGC) if supported to assist hardware sensitivity.
         val audioSessionId = record.audioSessionId
         try {
             if (AutomaticGainControl.isAvailable()) {
@@ -128,22 +131,6 @@ class AudioRecordEngine {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "AGC effect setup failed: ${t.message}")
-        }
-
-        try {
-            if (AcousticEchoCanceler.isAvailable()) {
-                aec = AcousticEchoCanceler.create(audioSessionId)?.apply { enabled = true }
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "AEC effect setup failed: ${t.message}")
-        }
-
-        try {
-            if (NoiseSuppressor.isAvailable()) {
-                ns = NoiseSuppressor.create(audioSessionId)?.apply { enabled = true }
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "NS effect setup failed: ${t.message}")
         }
 
         // Initialize native WAV writer with EXACT negotiated sample rate!

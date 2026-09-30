@@ -1,5 +1,8 @@
 package com.hasif.fdserver.fdserver.call_recorder
 
+import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
@@ -9,6 +12,7 @@ import java.io.File
 /**
  * Built-in native audio player for recorded call audio (.wav) files.
  * Provides play, pause, resume, stop, seekTo, and periodic playback progress reporting.
+ * Forces USAGE_MEDIA and normal audio mode so playback is loud and routed to the main speaker.
  */
 object CallAudioPlayer {
 
@@ -22,7 +26,7 @@ object CallAudioPlayer {
     private val handler = Handler(Looper.getMainLooper())
     private var progressRunnable: Runnable? = null
 
-    fun play(path: String): Boolean {
+    fun play(path: String, context: Context? = null): Boolean {
         try {
             val file = File(path)
             if (!file.exists()) {
@@ -32,8 +36,27 @@ object CallAudioPlayer {
 
             stop()
 
+            // Reset AudioManager mode away from residual in-call/telecom modes so playback uses the loud main speaker
+            context?.let { ctx ->
+                try {
+                    val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    am?.let {
+                        it.mode = AudioManager.MODE_NORMAL
+                        it.isSpeakerphoneOn = true
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Failed to adjust audio routing mode: ${t.message}")
+                }
+            }
+
             val player = MediaPlayer().apply {
+                val attrs = AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .build()
+                setAudioAttributes(attrs)
                 setDataSource(path)
+                setVolume(1.0f, 1.0f)
                 prepare()
                 start()
             }

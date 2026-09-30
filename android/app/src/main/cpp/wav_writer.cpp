@@ -1,5 +1,6 @@
 #include "wav_writer.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -81,13 +82,25 @@ bool WavWriter::writePcm(const int16_t* samples, size_t numSamples, float gainMu
     size_t bytesToWrite = numSamples * sizeof(int16_t);
 
     if (gainMultiplier > 1.01f || gainMultiplier < 0.99f) {
-        // Apply software acoustic amplification with hard limiter clipping prevention
+        // Adaptive acoustic speech booster with soft-knee tanh limiter.
+        // Faint acoustic caller speech from the phone earpiece (< 8000 amplitude) receives up to
+        // 1.8x additional acoustic expansion, while loud near-end speech is softly compressed
+        // to prevent digital clipping/distortion.
         std::vector<int16_t> boosted(numSamples);
         for (size_t i = 0; i < numSamples; ++i) {
-            float amplified = static_cast<float>(samples[i]) * gainMultiplier;
-            if (amplified > 32767.0f) amplified = 32767.0f;
-            else if (amplified < -32768.0f) amplified = -32768.0f;
-            boosted[i] = static_cast<int16_t>(amplified);
+            float sample = static_cast<float>(samples[i]);
+            float absSample = std::abs(sample);
+            float effectiveGain = gainMultiplier;
+            if (absSample < 8000.0f) {
+                float boostFactor = 1.0f + 0.8f * (1.0f - (absSample / 8000.0f));
+                effectiveGain *= boostFactor;
+            }
+            float norm = (sample * effectiveGain) / 32768.0f;
+            float out = std::tanh(norm);
+            int32_t val = static_cast<int32_t>(out * 32767.0f);
+            if (val > 32767) val = 32767;
+            else if (val < -32768) val = -32768;
+            boosted[i] = static_cast<int16_t>(val);
         }
         size_t written = fwrite(boosted.data(), 1, bytesToWrite, m_file);
         if (written > 0) {

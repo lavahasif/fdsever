@@ -47,7 +47,7 @@ class CallBroadcastReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE)
         val isAutoRecordEnabled = prefs.getBoolean("auto_record_enabled", false)
-        val gain = prefs.getFloat("auto_record_gain", 1.8f)
+        val gain = prefs.getFloat("auto_record_gain", 3.5f)
 
         if (!isAutoRecordEnabled) {
             Log.d(TAG, "Auto-record disabled in background prefs, skipping")

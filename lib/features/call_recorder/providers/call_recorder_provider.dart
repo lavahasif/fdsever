@@ -16,7 +16,7 @@ class CallRecorderProvider extends ChangeNotifier {
   String _callState = 'IDLE';
   String _incomingNumber = '';
   bool _autoRecordEnabled = true;
-  double _gainMultiplier = 1.8;
+  double _gainMultiplier = 3.5;
   String _statusMessage = 'Ready';
 
   bool _hasAudioPermission = false;
@@ -86,7 +86,7 @@ class CallRecorderProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     _autoRecordEnabled = prefs.getBool(_keyAutoRecord) ?? true;
-    _gainMultiplier = prefs.getDouble(_keyGain) ?? 1.8;
+    _gainMultiplier = prefs.getDouble(_keyGain) ?? 3.5;
 
     CallRecorderBridge.onCallStateChanged = (state, number) {
       _callState = state;
@@ -256,6 +256,10 @@ class CallRecorderProvider extends ChangeNotifier {
     _playbackPositionMs = positionMs;
     notifyListeners();
     await CallRecorderBridge.seekAudio(positionMs);
+  }
+
+  Future<bool> openWithExternalPlayer(String path) async {
+    return await CallRecorderBridge.openWithExternalPlayer(path);
   }
 
   // ── Metadata Management ───────────────────────────────────────────────────

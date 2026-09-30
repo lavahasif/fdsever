@@ -42,7 +42,7 @@ class MainActivity : FlutterActivity() {
     private var callStateManager: CallStateManager? = null
     private var callRecorderChannel: MethodChannel? = null
     private var isAutoRecordEnabled: Boolean = false
-    private var autoRecordGain: Float = 1.8f
+    private var autoRecordGain: Float = 3.5f
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
     private var focusGuardChannel: MethodChannel? = null
@@ -861,7 +861,7 @@ class MainActivity : FlutterActivity() {
                                 return@setMethodCallHandler
                             }
                             val path = call.argument<String>("path")
-                            val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
+                            val gain = (call.argument<Double>("gain") ?: 3.5).toFloat()
                             val phoneNumber = call.argument<String>("phoneNumber") ?: "Unknown"
                             val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
                                 action = CallRecorderService.ACTION_START
@@ -913,7 +913,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "setAutoRecord" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: false
-                        val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
+                        val gain = (call.argument<Double>("gain") ?: 3.5).toFloat()
                         isAutoRecordEnabled = enabled
                         autoRecordGain = gain
                         // Sync to SharedPreferences for background BroadcastReceiver auto-recording
@@ -925,8 +925,40 @@ class MainActivity : FlutterActivity() {
                     }
                     "playAudio" -> {
                         val path = call.argument<String>("path") ?: ""
-                        val ok = CallAudioPlayer.play(path)
+                        val ok = CallAudioPlayer.play(path, applicationContext)
                         result.success(ok)
+                    }
+                    "openWithExternalPlayer" -> {
+                        try {
+                            val path = call.argument<String>("path")
+                            if (path == null) {
+                                result.error("INVALID_PATH", "Path is null", null)
+                                return@setMethodCallHandler
+                            }
+                            val file = File(path)
+                            if (!file.exists()) {
+                                result.error("FILE_NOT_FOUND", "Audio file not found: $path", null)
+                                return@setMethodCallHandler
+                            }
+                            val uri: Uri = FileProvider.getUriForFile(
+                                this@MainActivity,
+                                "${packageName}.fileprovider",
+                                file
+                            )
+                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, "audio/*")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            val chooser = Intent.createChooser(intent, "Open with Audio Player").apply {
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(chooser)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("OPEN_PLAYER_ERROR", e.message, null)
+                        }
                     }
                     "pauseAudio" -> {
                         result.success(CallAudioPlayer.pause())

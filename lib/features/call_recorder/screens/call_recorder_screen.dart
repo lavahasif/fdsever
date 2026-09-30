@@ -500,8 +500,8 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
           Slider(
             value: provider.gainMultiplier,
             min: 1.0,
-            max: 3.0,
-            divisions: 20,
+            max: 6.0,
+            divisions: 50,
             label: '${provider.gainMultiplier.toStringAsFixed(1)}x',
             activeColor: const Color(0xFF10B981),
             inactiveColor: const Color(0xFF27272A),
@@ -654,6 +654,15 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
                     ],
                   ],
                 ),
+              ),
+
+              // Open with External Media Player (VLC / System Music / Chooser)
+              IconButton(
+                icon: const Icon(LucideIcons.externalLink, size: 16, color: Color(0xFF10B981)),
+                tooltip: 'Open with Player',
+                onPressed: () async {
+                  await provider.openWithExternalPlayer(item.path);
+                },
               ),
 
               // Edit Metadata Action
@@ -837,6 +846,11 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
           ),
         ),
         actions: [
+          TextButton.icon(
+            icon: const Icon(LucideIcons.externalLink, size: 14, color: Color(0xFF10B981)),
+            label: const Text('Open Player', style: TextStyle(color: Color(0xFF10B981), fontSize: 13)),
+            onPressed: () => provider.openWithExternalPlayer(item.path),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
