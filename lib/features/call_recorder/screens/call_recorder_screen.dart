@@ -68,6 +68,9 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Runtime Permissions Warning Banner ────────────────────────────
+            _buildPermissionBanner(context, provider),
+
             // ── Live Recorder Status Card ──────────────────────────────────────
             _buildLiveStatusCard(context, provider),
             const SizedBox(height: 16),
@@ -113,6 +116,61 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
             _buildRecordingsList(context, provider),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPermissionBanner(BuildContext context, CallRecorderProvider provider) {
+    if (provider.allPermissionsGranted) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF451A03).withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.alertTriangle, color: Color(0xFFF59E0B), size: 20),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Microphone & Phone Permissions Required',
+                  style: TextStyle(
+                    color: Color(0xFFFDE68A),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Android requires microphone access to record voice audio and phone state permission to detect cellular calls.',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => provider.requestPermissions(),
+              icon: const Icon(LucideIcons.shieldCheck, size: 16),
+              label: const Text('Grant Permissions Now'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF59E0B),
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -220,11 +278,22 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
               fontFamily: 'monospace',
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            provider.statusMessage,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, color: Colors.white60),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              provider.statusMessage,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: provider.statusMessage.contains('unavailable') ||
+                       provider.statusMessage.contains('denied') ||
+                       provider.statusMessage.contains('interrupted') ||
+                       provider.statusMessage.contains('silenced')
+                    ? const Color(0xFFF59E0B)
+                    : (isRec ? const Color(0xFF10B981) : Colors.white60),
+              ),
+            ),
           ),
           const SizedBox(height: 20),
 

@@ -13,15 +13,15 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * High-performance audio recording engine using Android's public AudioRecord API.
- * Configured with hardware AGC and acoustic tuning to optimize microphone capture
- * of both near voice (owner) and far acoustic voice (caller spillover).
+ * Resilient, high-performance audio recording engine using Android's public AudioRecord API.
+ * Configured with dynamic multi-source fallback (Voice Recognition, Mic, Voice Communication, Camcorder),
+ * multi-sample rate negotiation (16kHz, 44.1kHz, 48kHz, 8kHz), retry backoff, and hardware AGC/AEC/NS tuning.
  */
 class AudioRecordEngine {
 
     companion object {
         private const val TAG = "AudioRecordEngine"
-        const val SAMPLE_RATE = 44100
+        val CANDIDATE_SAMPLE_RATES = intArrayOf(16000, 44100, 48000, 8000)
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     }
@@ -34,6 +34,11 @@ class AudioRecordEngine {
     private var agc: AutomaticGainControl? = null
     private var aec: AcousticEchoCanceler? = null
     private var ns: NoiseSuppressor? = null
+
+    var activeSampleRate: Int = 16000
+        private set
+    var activeSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION
+        private set
 
     var gainMultiplier: Float = 1.8f // High-gain acoustic boost for receiver clarity
     var onAmplitudeUpdated: ((amplitude: Int) -> Unit)? = null
@@ -48,66 +53,103 @@ class AudioRecordEngine {
 
         gainMultiplier = boostGain
 
-        val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-        if (minBufferSize == AudioRecord.ERROR || minBufferSize == AudioRecord.ERROR_BAD_VALUE) {
-            Log.e(TAG, "Invalid AudioRecord buffer configuration")
-            onStatusChanged?.invoke("AUDIO_CONFIG_ERROR")
-            return false
-        }
-
-        val bufferSize = max(minBufferSize * 2, 4096)
-
-        // Try VOICE_COMMUNICATION first (optimized for speech and acoustic balancing), fallback to MIC
-        val sources = listOf(
+        // Priority 1: VOICE_RECOGNITION - Android AudioPolicy grants concurrent capture priority during calls
+        // Priority 2: MIC - Standard hardware mic
+        // Priority 3: VOICE_COMMUNICATION - VoIP/Communication tuned
+        // Priority 4: CAMCORDER - Secondary mic bypasses primary in-call audio routing on many devices
+        // Priority 5: UNPROCESSED - Direct raw audio stream
+        // Priority 6: DEFAULT - OS default
+        val candidateSources = intArrayOf(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.MIC
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.UNPROCESSED,
+            MediaRecorder.AudioSource.DEFAULT
         )
 
         var record: AudioRecord? = null
-        for (source in sources) {
-            try {
-                record = AudioRecord(source, SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize)
-                if (record.state == AudioRecord.STATE_INITIALIZED) {
-                    Log.i(TAG, "AudioRecord initialized with source: $source")
-                    break
-                } else {
-                    record.release()
-                    record = null
+        var chosenSampleRate = 16000
+        var chosenBufferSize = 4096
+        var chosenSource = MediaRecorder.AudioSource.VOICE_RECOGNITION
+
+        // Retry loop: phone call audio HAL transition (switching to MODE_IN_CALL) can take 200-500ms
+        val maxRetries = 3
+        for (attempt in 1..maxRetries) {
+            for (rate in CANDIDATE_SAMPLE_RATES) {
+                val minBufferSize = AudioRecord.getMinBufferSize(rate, CHANNEL_CONFIG, AUDIO_FORMAT)
+                if (minBufferSize <= 0) continue
+
+                val bufferSize = max(minBufferSize * 2, 4096)
+
+                for (source in candidateSources) {
+                    try {
+                        val testRecord = AudioRecord(source, rate, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize)
+                        if (testRecord.state == AudioRecord.STATE_INITIALIZED) {
+                            record = testRecord
+                            chosenSampleRate = rate
+                            chosenBufferSize = bufferSize
+                            chosenSource = source
+                            Log.i(TAG, "AudioRecord successfully initialized on attempt $attempt: Source=$source, Rate=$rate, Buffer=$bufferSize")
+                            break
+                        } else {
+                            testRecord.release()
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Attempt $attempt Source $source @ $rate Hz failed: ${e.message}")
+                    }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed source $source: ${e.message}")
+                if (record != null) break
+            }
+            if (record != null) break
+
+            if (attempt < maxRetries) {
+                Log.w(TAG, "Mic initialization attempt $attempt failed, retrying in 300ms (waiting for telephony audio HAL)...")
+                try { Thread.sleep(300) } catch (_: InterruptedException) {}
             }
         }
 
         if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "Failed to initialize AudioRecord with any source")
+            Log.e(TAG, "Failed to initialize AudioRecord with any source or sample rate after $maxRetries attempts")
             onStatusChanged?.invoke("MIC_UNAVAILABLE")
             return false
         }
 
         audioRecord = record
+        activeSampleRate = chosenSampleRate
+        activeSource = chosenSource
 
-        // Attach hardware effects if supported
+        // Attach hardware effects safely if supported
         val audioSessionId = record.audioSessionId
         try {
             if (AutomaticGainControl.isAvailable()) {
                 agc = AutomaticGainControl.create(audioSessionId)?.apply { enabled = true }
                 Log.i(TAG, "Hardware AutomaticGainControl enabled")
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "AGC effect setup failed: ${t.message}")
+        }
+
+        try {
             if (AcousticEchoCanceler.isAvailable()) {
                 aec = AcousticEchoCanceler.create(audioSessionId)?.apply { enabled = true }
             }
+        } catch (t: Throwable) {
+            Log.w(TAG, "AEC effect setup failed: ${t.message}")
+        }
+
+        try {
             if (NoiseSuppressor.isAvailable()) {
                 ns = NoiseSuppressor.create(audioSessionId)?.apply { enabled = true }
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "Could not attach audio effects: ${t.message}")
+            Log.w(TAG, "NS effect setup failed: ${t.message}")
         }
 
-        // Initialize native WAV writer
-        val nativeStarted = CallRecorderBridge.safeStart(filePath, SAMPLE_RATE, 1, 16)
+        // Initialize native WAV writer with EXACT negotiated sample rate!
+        val nativeStarted = CallRecorderBridge.safeStart(filePath, chosenSampleRate, 1, 16)
         if (!nativeStarted) {
-            Log.e(TAG, "Failed to start native WAV writer")
+            Log.e(TAG, "Failed to start native WAV writer at $filePath")
             releaseRecord()
             onStatusChanged?.invoke("FILE_OPEN_ERROR")
             return false
@@ -123,18 +165,32 @@ class AudioRecordEngine {
             return false
         }
 
+        // Verify recording state
+        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            Log.e(TAG, "AudioRecord failed to enter RECORDING state: ${record.recordingState}")
+            releaseRecord()
+            CallRecorderBridge.safeStop()
+            onStatusChanged?.invoke("MIC_UNAVAILABLE")
+            return false
+        }
+
         isRecording = true
         onStatusChanged?.invoke("RECORDING_ACTIVE")
 
         // Dedicated audio capture thread with THREAD_PRIORITY_URGENT_AUDIO
         recordingThread = Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-            val audioBuffer = ShortArray(bufferSize / 2)
+            val audioBuffer = ShortArray(chosenBufferSize / 2)
             var consecutiveZeroReads = 0
 
             while (isRecording) {
                 val currentRecord = audioRecord ?: break
-                val readResult = currentRecord.read(audioBuffer, 0, audioBuffer.size)
+                val readResult = try {
+                    currentRecord.read(audioBuffer, 0, audioBuffer.size)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Exception during read: ${e.message}")
+                    -1
+                }
 
                 if (readResult > 0) {
                     consecutiveZeroReads = 0
@@ -151,15 +207,16 @@ class AudioRecordEngine {
                     CallRecorderBridge.safeWritePcm(audioBuffer, readResult, gainMultiplier)
                 } else if (readResult == 0) {
                     consecutiveZeroReads++
-                    if (consecutiveZeroReads > 50) {
-                        Log.w(TAG, "Mic may be muted or blocked by OEM call concurrency")
-                        onStatusChanged?.invoke("MIC_INTERRUPTED_BY_OEM")
+                    if (consecutiveZeroReads == 50) {
+                        Log.w(TAG, "Mic may be muted or temporarily delayed by audio HAL")
+                        onStatusChanged?.invoke("MIC_SILENCED_OR_MUTED")
                     }
                     try { Thread.sleep(10) } catch (_: InterruptedException) {}
                 } else {
                     // Negative error codes
-                    Log.e(TAG, "AudioRecord read error: $readResult")
+                    Log.w(TAG, "AudioRecord read returned error code: $readResult")
                     if (readResult == AudioRecord.ERROR_DEAD_OBJECT) {
+                        Log.e(TAG, "AudioRecord dead object encountered")
                         onStatusChanged?.invoke("MIC_DEAD_OBJECT")
                         break
                     }

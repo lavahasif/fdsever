@@ -1,12 +1,16 @@
 package com.hasif.fdserver.fdserver
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import android.net.VpnService
 import com.hasif.fdserver.fdserver.vpn.ProxyVpnService
@@ -31,6 +35,8 @@ class MainActivity : FlutterActivity() {
     private val FOCUS_GUARD_CHANNEL = "fdserver/focus_guard"
     private val NATIVE_MONITOR_CHANNEL = "fdserver/native_monitor"
     private val CALL_RECORDER_CHANNEL = "fdserver/call_recorder"
+    private val CALL_RECORDER_PERM_REQUEST_CODE = 5001
+    private var callRecorderPermissionResult: MethodChannel.Result? = null
     private var callStateManager: CallStateManager? = null
     private var callRecorderChannel: MethodChannel? = null
     private var isAutoRecordEnabled: Boolean = false
@@ -808,8 +814,45 @@ class MainActivity : FlutterActivity() {
         callRecorderChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_RECORDER_CHANNEL).apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "hasPermissions" -> {
+                        val audioGranted = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                        val phoneGranted = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+                        val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                        } else true
+                        result.success(mapOf(
+                            "audio" to audioGranted,
+                            "phone" to phoneGranted,
+                            "notifications" to notifGranted,
+                            "allGranted" to (audioGranted && phoneGranted)
+                        ))
+                    }
+                    "requestPermissions" -> {
+                        val needed = mutableListOf<String>()
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                            needed.add(Manifest.permission.RECORD_AUDIO)
+                        }
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                            needed.add(Manifest.permission.READ_PHONE_STATE)
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                                needed.add(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        }
+                        if (needed.isEmpty()) {
+                            result.success(true)
+                        } else {
+                            callRecorderPermissionResult = result
+                            ActivityCompat.requestPermissions(this@MainActivity, needed.toTypedArray(), CALL_RECORDER_PERM_REQUEST_CODE)
+                        }
+                    }
                     "startRecording" -> {
                         try {
+                            if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                result.error("PERMISSION_DENIED", "RECORD_AUDIO permission is not granted", null)
+                                return@setMethodCallHandler
+                            }
                             val path = call.argument<String>("path")
                             val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
                             val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
@@ -991,6 +1034,16 @@ class MainActivity : FlutterActivity() {
             }
         } else {
             startService(intent)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == CALL_RECORDER_PERM_REQUEST_CODE) {
+            val audioGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            val phoneGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+            callRecorderPermissionResult?.success(audioGranted && phoneGranted)
+            callRecorderPermissionResult = null
         }
     }
 

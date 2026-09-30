@@ -130,4 +130,32 @@ class CallRecorderBridge {
       return false;
     }
   }
+
+  static Future<Map<String, bool>> hasPermissions() async {
+    if (kIsWeb || !Platform.isAndroid) {
+      return {'audio': true, 'phone': true, 'notifications': true, 'allGranted': true};
+    }
+    init();
+    try {
+      final res = await _channel.invokeMapMethod<String, bool>('hasPermissions');
+      if (res != null) {
+        return Map<String, bool>.from(res);
+      }
+    } catch (e) {
+      debugPrint('Error checking call recorder permissions: $e');
+    }
+    return {'audio': false, 'phone': false, 'notifications': false, 'allGranted': false};
+  }
+
+  static Future<bool> requestPermissions() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    init();
+    try {
+      final res = await _channel.invokeMethod<bool>('requestPermissions');
+      return res ?? false;
+    } catch (e) {
+      debugPrint('Error requesting call recorder permissions: $e');
+      return false;
+    }
+  }
 }

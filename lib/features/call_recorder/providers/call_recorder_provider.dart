@@ -19,6 +19,9 @@ class CallRecorderProvider extends ChangeNotifier {
   double _gainMultiplier = 1.8;
   String _statusMessage = 'Ready';
 
+  bool _hasAudioPermission = false;
+  bool _hasPhonePermission = false;
+
   List<CallRecordingItem> _recordings = [];
   Timer? _pollingTimer;
 
@@ -33,6 +36,10 @@ class CallRecorderProvider extends ChangeNotifier {
   double get gainMultiplier => _gainMultiplier;
   String get statusMessage => _statusMessage;
   List<CallRecordingItem> get recordings => List.unmodifiable(_recordings);
+
+  bool get hasAudioPermission => _hasAudioPermission;
+  bool get hasPhonePermission => _hasPhonePermission;
+  bool get allPermissionsGranted => _hasAudioPermission && _hasPhonePermission;
 
   String get formattedDuration {
     final totalSec = _durationSeconds.toInt();
@@ -72,15 +79,22 @@ class CallRecorderProvider extends ChangeNotifier {
         _statusMessage = 'Recording Saved';
         refreshRecordings();
       } else if (status == 'RECORDING_ACTIVE') {
-        _statusMessage = 'Acoustic Call Recording Active';
+        _statusMessage = 'Call Recording Active';
+      } else if (status == 'MIC_UNAVAILABLE') {
+        _statusMessage = 'Microphone unavailable. Please grant permissions and ensure mic is free.';
+      } else if (status == 'PERMISSION_DENIED') {
+        _statusMessage = 'Microphone permission denied. Tap Grant Permissions.';
+      } else if (status == 'MIC_SILENCED_OR_MUTED') {
+        _statusMessage = 'Microphone temporarily silenced by telecom HAL.';
       } else if (status == 'MIC_INTERRUPTED_BY_OEM') {
-        _statusMessage = '⚠️ Android or this device has made microphone capture unavailable during the call.';
+        _statusMessage = 'Microphone capture interrupted by OEM audio routing.';
       } else {
         _statusMessage = status;
       }
       notifyListeners();
     };
 
+    await checkPermissions();
     await syncAutoRecordConfig();
     await checkInitialState();
     await refreshRecordings();
@@ -88,6 +102,20 @@ class CallRecorderProvider extends ChangeNotifier {
     _pollingTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       _pollRecordingStats();
     });
+  }
+
+  Future<bool> checkPermissions() async {
+    final perms = await CallRecorderBridge.hasPermissions();
+    _hasAudioPermission = perms['audio'] ?? false;
+    _hasPhonePermission = perms['phone'] ?? false;
+    notifyListeners();
+    return allPermissionsGranted;
+  }
+
+  Future<bool> requestPermissions() async {
+    final granted = await CallRecorderBridge.requestPermissions();
+    await checkPermissions();
+    return granted;
   }
 
   Future<void> checkInitialState() async {
@@ -117,10 +145,23 @@ class CallRecorderProvider extends ChangeNotifier {
   }
 
   Future<bool> startManualRecording() async {
+    await checkPermissions();
+    if (!allPermissionsGranted) {
+      final granted = await requestPermissions();
+      if (!granted) {
+        _statusMessage = 'Microphone permission required to record';
+        notifyListeners();
+        return false;
+      }
+    }
+
     final success = await CallRecorderBridge.startRecording(gain: _gainMultiplier);
     if (success) {
       _isRecording = true;
       _statusMessage = 'Recording Started';
+      notifyListeners();
+    } else {
+      _statusMessage = 'Could not start recording. Tap Grant Permissions or try again.';
       notifyListeners();
     }
     return success;
@@ -159,7 +200,8 @@ class CallRecorderProvider extends ChangeNotifier {
   }
 
   Future<void> refreshRecordings() async {
-    _recordings = await CallRecorderBridge.listRecordings();
+    final list = await CallRecorderBridge.listRecordings();
+    _recordings = list;
     notifyListeners();
   }
 
