@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.hasif.fdserver.fdserver.MainActivity
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -21,6 +22,7 @@ import java.util.Locale
 /**
  * Foreground Service for call recording on Android 10 through Android 16 (API 29-36).
  * Declares FOREGROUND_SERVICE_TYPE_MICROPHONE to strictly adhere to Android 14+ requirements.
+ * Records call audio and saves companion metadata (.meta) including caller/receiver mobile number.
  */
 class CallRecorderService : Service() {
 
@@ -33,11 +35,15 @@ class CallRecorderService : Service() {
         const val ACTION_STOP = "com.hasif.fdserver.call_recorder.STOP"
         const val EXTRA_FILE_PATH = "extra_file_path"
         const val EXTRA_GAIN = "extra_gain"
+        const val EXTRA_PHONE_NUMBER = "extra_phone_number"
 
         @Volatile var isRunning = false
             private set
 
         @Volatile var currentRecordingPath: String? = null
+            private set
+
+        @Volatile var currentPhoneNumber: String? = null
             private set
 
         @Volatile var latestAmplitude: Int = 0
@@ -64,9 +70,12 @@ class CallRecorderService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                val path = intent.getStringExtra(EXTRA_FILE_PATH) ?: generateDefaultFilePath()
+                val phoneNumber = intent.getStringExtra(EXTRA_PHONE_NUMBER) ?: "Unknown"
+                currentPhoneNumber = phoneNumber
+                val path = intent.getStringExtra(EXTRA_FILE_PATH) ?: generateDefaultFilePath(phoneNumber)
                 val gain = intent.getFloatExtra(EXTRA_GAIN, 1.8f)
-                startForegroundWithNotification(path)
+
+                startForegroundWithNotification(path, phoneNumber)
                 startRecording(path, gain)
                 return START_STICKY
             }
@@ -76,8 +85,8 @@ class CallRecorderService : Service() {
         }
     }
 
-    private fun startForegroundWithNotification(path: String) {
-        val notification = buildNotification(path)
+    private fun startForegroundWithNotification(path: String, phoneNumber: String) {
+        val notification = buildNotification(path, phoneNumber)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 try {
@@ -112,7 +121,7 @@ class CallRecorderService : Service() {
         val success = recordEngine.startCapture(path, gain)
         if (success) {
             isRunning = true
-            Log.i(TAG, "Call recorder service recording started at $path")
+            Log.i(TAG, "Call recorder service recording started at $path (number=$currentPhoneNumber)")
             statusListener?.invoke("RECORDING_STARTED")
         } else {
             stopSelf()
@@ -124,9 +133,40 @@ class CallRecorderService : Service() {
         recordEngine.stopCapture()
         isRunning = false
         val path = currentRecordingPath
+        val number = currentPhoneNumber ?: "Unknown"
         currentRecordingPath = null
+        currentPhoneNumber = null
+
+        // Save companion metadata file (.meta)
+        if (path != null) {
+            saveMetadata(path, number)
+        }
+
         statusListener?.invoke("RECORDING_FINISHED:$path")
-        Log.i(TAG, "Call recorder service stopped")
+        Log.i(TAG, "Call recorder service stopped, metadata saved")
+    }
+
+    private fun saveMetadata(filePath: String, phoneNumber: String) {
+        try {
+            val audioFile = File(filePath)
+            val metaFile = File("${filePath}.meta")
+            val duration = CallRecorderBridge.safeGetDuration()
+
+            val json = JSONObject().apply {
+                put("filePath", filePath)
+                put("fileName", audioFile.name)
+                put("phoneNumber", phoneNumber)
+                put("contactName", "")
+                put("notes", "")
+                put("durationSeconds", duration)
+                put("timestamp", System.currentTimeMillis())
+                put("sizeBytes", audioFile.length())
+            }
+            metaFile.writeText(json.toString())
+            Log.i(TAG, "Companion metadata saved at ${metaFile.absolutePath}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save companion metadata: ${e.message}")
+        }
     }
 
     override fun onDestroy() {
@@ -134,11 +174,12 @@ class CallRecorderService : Service() {
         super.onDestroy()
     }
 
-    private fun generateDefaultFilePath(): String {
+    private fun generateDefaultFilePath(phoneNumber: String): String {
         val dir = File(applicationContext.filesDir, "call_recordings")
         if (!dir.exists()) dir.mkdirs()
+        val cleanNumber = phoneNumber.replace(Regex("[^0-9+]"), "").ifEmpty { "Unknown" }
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return File(dir, "Call_$timestamp.wav").absolutePath
+        return File(dir, "Call_${timestamp}_${cleanNumber}.wav").absolutePath
     }
 
     private fun createNotificationChannel() {
@@ -158,8 +199,13 @@ class CallRecorderService : Service() {
         }
     }
 
-    private fun buildNotification(path: String): Notification {
+    private fun buildNotification(path: String, phoneNumber: String): Notification {
         val fileName = File(path).name
+        val contentSubtext = if (phoneNumber.isNotEmpty() && phoneNumber != "Unknown") {
+            "Call with: $phoneNumber (High-Gain Mode)"
+        } else {
+            "Recording: $fileName"
+        }
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -179,7 +225,7 @@ class CallRecorderService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Call Audio Recorder Active")
-            .setContentText("Recording: $fileName (High-Gain Mic Mode)")
+            .setContentText(contentSubtext)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(openPendingIntent)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopPendingIntent)

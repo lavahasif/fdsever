@@ -18,12 +18,14 @@ import android.app.AppOpsManager
 import com.hasif.fdserver.fdserver.focus_guard.FocusAccessibilityService
 import com.hasif.fdserver.fdserver.focus_guard.NativeMonitorBridge
 import com.hasif.fdserver.fdserver.focus_guard.NativeMonitorService
+import com.hasif.fdserver.fdserver.call_recorder.CallAudioPlayer
 import com.hasif.fdserver.fdserver.call_recorder.CallRecorderBridge
 import com.hasif.fdserver.fdserver.call_recorder.CallRecorderService
 import com.hasif.fdserver.fdserver.call_recorder.CallStateManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import java.io.File
 
 class MainActivity : FlutterActivity() {
@@ -817,12 +819,14 @@ class MainActivity : FlutterActivity() {
                     "hasPermissions" -> {
                         val audioGranted = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                         val phoneGranted = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
+                        val callLogGranted = ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
                         val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                         } else true
                         result.success(mapOf(
                             "audio" to audioGranted,
                             "phone" to phoneGranted,
+                            "callLog" to callLogGranted,
                             "notifications" to notifGranted,
                             "allGranted" to (audioGranted && phoneGranted)
                         ))
@@ -834,6 +838,9 @@ class MainActivity : FlutterActivity() {
                         }
                         if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
                             needed.add(Manifest.permission.READ_PHONE_STATE)
+                        }
+                        if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+                            needed.add(Manifest.permission.READ_CALL_LOG)
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -855,10 +862,12 @@ class MainActivity : FlutterActivity() {
                             }
                             val path = call.argument<String>("path")
                             val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
+                            val phoneNumber = call.argument<String>("phoneNumber") ?: "Unknown"
                             val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
                                 action = CallRecorderService.ACTION_START
                                 if (path != null) putExtra(CallRecorderService.EXTRA_FILE_PATH, path)
                                 putExtra(CallRecorderService.EXTRA_GAIN, gain)
+                                putExtra(CallRecorderService.EXTRA_PHONE_NUMBER, phoneNumber)
                             }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 startForegroundService(intent)
@@ -907,18 +916,98 @@ class MainActivity : FlutterActivity() {
                         val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
                         isAutoRecordEnabled = enabled
                         autoRecordGain = gain
+                        // Sync to SharedPreferences for background BroadcastReceiver auto-recording
+                        getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE).edit()
+                            .putBoolean("auto_record_enabled", enabled)
+                            .putFloat("auto_record_gain", gain)
+                            .apply()
                         result.success(true)
+                    }
+                    "playAudio" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        val ok = CallAudioPlayer.play(path)
+                        result.success(ok)
+                    }
+                    "pauseAudio" -> {
+                        result.success(CallAudioPlayer.pause())
+                    }
+                    "resumeAudio" -> {
+                        result.success(CallAudioPlayer.resume())
+                    }
+                    "stopAudio" -> {
+                        CallAudioPlayer.stop()
+                        result.success(true)
+                    }
+                    "seekAudio" -> {
+                        val pos = call.argument<Int>("positionMs") ?: 0
+                        result.success(CallAudioPlayer.seekTo(pos))
+                    }
+                    "getAudioPlayerState" -> {
+                        result.success(mapOf(
+                            "isPlaying" to CallAudioPlayer.isPlaying(),
+                            "currentPositionMs" to CallAudioPlayer.getCurrentPosition(),
+                            "durationMs" to CallAudioPlayer.getDuration(),
+                            "filePath" to (CallAudioPlayer.currentlyPlayingPath ?: "")
+                        ))
+                    }
+                    "updateRecordingMetadata" -> {
+                        try {
+                            val path = call.argument<String>("path") ?: ""
+                            val phoneNumber = call.argument<String>("phoneNumber") ?: ""
+                            val contactName = call.argument<String>("contactName") ?: ""
+                            val notes = call.argument<String>("notes") ?: ""
+                            val metaFile = File("${path}.meta")
+                            val json = if (metaFile.exists()) {
+                                try { JSONObject(metaFile.readText()) } catch (_: Exception) { JSONObject() }
+                            } else {
+                                JSONObject()
+                            }
+                            json.put("filePath", path)
+                            json.put("phoneNumber", phoneNumber)
+                            json.put("contactName", contactName)
+                            json.put("notes", notes)
+                            metaFile.writeText(json.toString())
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("META_ERROR", e.message, null)
+                        }
                     }
                     "listRecordings" -> {
                         val dir = File(applicationContext.filesDir, "call_recordings")
                         val list = mutableListOf<Map<String, Any>>()
                         if (dir.exists()) {
                             dir.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() }?.forEach { f ->
+                                var phoneNum = ""
+                                var contact = ""
+                                var notes = ""
+                                var durSec = 0.0
+
+                                val metaFile = File("${f.absolutePath}.meta")
+                                if (metaFile.exists()) {
+                                    try {
+                                        val json = JSONObject(metaFile.readText())
+                                        phoneNum = json.optString("phoneNumber", "")
+                                        contact = json.optString("contactName", "")
+                                        notes = json.optString("notes", "")
+                                        durSec = json.optDouble("durationSeconds", 0.0)
+                                    } catch (_: Exception) {}
+                                }
+                                if (phoneNum.isEmpty()) {
+                                    val match = Regex("Call_\\d+_([^+_]+|\\+\\d+)").find(f.nameWithoutExtension)
+                                    if (match != null && match.groupValues.size > 1 && match.groupValues[1] != "Unknown") {
+                                        phoneNum = match.groupValues[1]
+                                    }
+                                }
+
                                 list.add(mapOf(
                                     "path" to f.absolutePath,
                                     "name" to f.name,
                                     "sizeBytes" to f.length(),
-                                    "lastModified" to f.lastModified()
+                                    "lastModified" to f.lastModified(),
+                                    "phoneNumber" to phoneNum,
+                                    "contactName" to contact,
+                                    "notes" to notes,
+                                    "durationSeconds" to durSec
                                 ))
                             }
                         }
@@ -927,7 +1016,12 @@ class MainActivity : FlutterActivity() {
                     "deleteRecording" -> {
                         val path = call.argument<String>("path")
                         if (path != null) {
+                            if (CallAudioPlayer.currentlyPlayingPath == path) {
+                                CallAudioPlayer.stop()
+                            }
                             val file = File(path)
+                            val metaFile = File("${path}.meta")
+                            if (metaFile.exists()) metaFile.delete()
                             result.success(file.delete())
                         } else {
                             result.success(false)
@@ -954,6 +1048,7 @@ class MainActivity : FlutterActivity() {
                                 val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
                                     action = CallRecorderService.ACTION_START
                                     putExtra(CallRecorderService.EXTRA_GAIN, autoRecordGain)
+                                    putExtra(CallRecorderService.EXTRA_PHONE_NUMBER, number ?: "Unknown")
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     startForegroundService(intent)
@@ -976,6 +1071,12 @@ class MainActivity : FlutterActivity() {
         CallRecorderService.statusListener = { status ->
             runOnUiThread {
                 callRecorderChannel?.invokeMethod("onRecorderStatus", status)
+            }
+        }
+
+        CallAudioPlayer.onPlaybackStatus = { statusMap ->
+            runOnUiThread {
+                callRecorderChannel?.invokeMethod("onAudioPlaybackStateChanged", statusMap)
             }
         }
     }
@@ -1048,6 +1149,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            CallAudioPlayer.stop()
+        } catch (_: Throwable) {}
         try {
             callStateManager?.stopListening()
             callStateManager = null

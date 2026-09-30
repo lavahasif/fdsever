@@ -21,6 +21,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <uses-permission android:name="android.permission.READ_CALL_LOG"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <!-- Auto Trail: Location & Motion permissions -->
@@ -128,6 +129,15 @@
             android:name=".call_recorder.CallRecorderService"
             android:foregroundServiceType="microphone"
             android:exported="false" />
+
+        <!-- Background Cellular Call State Receiver for auto-recording when app is closed -->
+        <receiver
+            android:name=".call_recorder.CallBroadcastReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
 
         <meta-data android:name="flutterEmbedding" android:value="2"/>
     </application>

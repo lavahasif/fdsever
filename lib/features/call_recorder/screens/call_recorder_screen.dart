@@ -426,17 +426,33 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Auto Record on Phone Call',
-                      style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500),
+                    Row(
+                      children: [
+                        const Text(
+                          'Background Auto-Record',
+                          style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'EVEN WHEN CLOSED',
+                            style: TextStyle(fontSize: 9, color: Color(0xFF10B981), fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Automatically starts when call connects, stops on hangup',
+                    const SizedBox(height: 3),
+                    const Text(
+                      'BroadcastReceiver automatically starts recording in background on phone calls',
                       style: TextStyle(fontSize: 12, color: Colors.white60),
                     ),
                   ],
@@ -537,73 +553,310 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
   }
 
   Widget _buildRecordingItem(BuildContext context, CallRecorderProvider provider, CallRecordingItem item) {
+    final isSelected = provider.isTrackSelected(item.path);
+    final isPlaying = provider.isTrackPlaying(item.path);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF18181B),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF27272A)),
+        color: isSelected ? const Color(0xFF1F1F23) : const Color(0xFF18181B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isSelected
+              ? (isPlaying ? const Color(0xFF10B981) : const Color(0xFF3F3F46))
+              : const Color(0xFF27272A),
+          width: isSelected ? 1.5 : 1.0,
+        ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF10B981).withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(LucideIcons.volume2, color: Color(0xFF10B981), size: 18),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+          Row(
+            children: [
+              // Play / Pause Circle Button
+              GestureDetector(
+                onTap: () => provider.togglePlay(item.path),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: isPlaying
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFF10B981).withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isPlaying ? LucideIcons.pause : LucideIcons.play,
+                    color: isPlaying ? Colors.black : const Color(0xFF10B981),
+                    size: 20,
+                  ),
                 ),
-                const SizedBox(height: 4),
-                Row(
+              ),
+              const SizedBox(width: 14),
+
+              // Title, Mobile Number, Metadata
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.formattedDate, style: const TextStyle(fontSize: 11, color: Colors.white54)),
-                    const SizedBox(width: 10),
-                    Container(width: 3, height: 3, decoration: const BoxDecoration(color: Colors.white38, shape: BoxShape.circle)),
-                    const SizedBox(width: 10),
-                    Text(item.formattedSize, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                    Text(
+                      item.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if (item.phoneNumber.isNotEmpty && item.phoneNumber != 'Unknown')
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(LucideIcons.phone, size: 10, color: Color(0xFF10B981)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  item.phoneNumber,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF10B981),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        Text(item.formattedDate, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                        Text('•', style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.3))),
+                        Text(item.formattedSize, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                      ],
+                    ),
+                    if (item.notes.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '📝 ${item.notes}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11, color: Colors.white54, fontStyle: FontStyle.italic),
+                      ),
+                    ],
                   ],
                 ),
-              ],
-            ),
+              ),
+
+              // Edit Metadata Action
+              IconButton(
+                icon: const Icon(LucideIcons.penLine, size: 16, color: Colors.white60),
+                tooltip: 'Edit Mobile No / Notes',
+                onPressed: () => _showEditMetadataDialog(context, provider, item),
+              ),
+
+              // Delete Action
+              IconButton(
+                icon: const Icon(LucideIcons.trash2, size: 16, color: Colors.white38),
+                tooltip: 'Delete',
+                onPressed: () async {
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: const Color(0xFF18181B),
+                      title: const Text('Delete Recording?', style: TextStyle(color: Colors.white, fontSize: 16)),
+                      content: Text('Are you sure you want to delete ${item.name}?', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancel'),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Delete', style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true) {
+                    await provider.deleteRecording(item.path);
+                  }
+                },
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(LucideIcons.trash2, size: 16, color: Colors.white38),
-            onPressed: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  backgroundColor: const Color(0xFF18181B),
-                  title: const Text('Delete Recording?', style: TextStyle(color: Colors.white, fontSize: 16)),
-                  content: Text('Are you sure you want to delete ${item.name}?', style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('Cancel'),
+
+          // Audio Player progress scrubber bar when selected
+          if (isSelected) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF121214),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 3,
+                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: const Color(0xFF10B981),
+                      inactiveTrackColor: const Color(0xFF27272A),
+                      thumbColor: const Color(0xFF10B981),
                     ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('Delete', style: TextStyle(color: Colors.white)),
+                    child: Slider(
+                      value: provider.playbackDurationMs > 0
+                          ? (provider.playbackPositionMs / provider.playbackDurationMs).clamp(0.0, 1.0)
+                          : 0.0,
+                      onChanged: (val) {
+                        final targetMs = (val * provider.playbackDurationMs).toInt();
+                        provider.seekAudio(targetMs);
+                      },
                     ),
-                  ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          CallRecorderProvider.formatMs(provider.playbackPositionMs),
+                          style: const TextStyle(fontSize: 11, color: Colors.white60, fontFamily: 'monospace'),
+                        ),
+                        Text(
+                          CallRecorderProvider.formatMs(provider.playbackDurationMs),
+                          style: const TextStyle(fontSize: 11, color: Colors.white38, fontFamily: 'monospace'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showEditMetadataDialog(BuildContext context, CallRecorderProvider provider, CallRecordingItem item) {
+    final phoneCtrl = TextEditingController(text: item.phoneNumber);
+    final nameCtrl = TextEditingController(text: item.contactName);
+    final notesCtrl = TextEditingController(text: item.notes);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18181B),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF27272A)),
+        ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(LucideIcons.penLine, size: 16, color: Color(0xFF10B981)),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Edit Call Metadata',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Caller / Receiver Mobile No:', style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: '+1 234 567 8900',
+                  hintStyle: const TextStyle(color: Colors.white30),
+                  prefixIcon: const Icon(LucideIcons.phone, size: 16, color: Color(0xFF10B981)),
+                  filled: true,
+                  fillColor: const Color(0xFF27272A),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Contact / Person Name:', style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: nameCtrl,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'e.g. John Doe, Support, Client',
+                  hintStyle: const TextStyle(color: Colors.white30),
+                  prefixIcon: const Icon(LucideIcons.user, size: 16, color: Colors.white60),
+                  filled: true,
+                  fillColor: const Color(0xFF27272A),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Notes / Description:', style: TextStyle(color: Colors.white70, fontSize: 12)),
+              const SizedBox(height: 6),
+              TextField(
+                controller: notesCtrl,
+                maxLines: 2,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'e.g. Discussed project delivery deadline',
+                  hintStyle: const TextStyle(color: Colors.white30),
+                  filled: true,
+                  fillColor: const Color(0xFF27272A),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await provider.updateRecordingMetadata(
+                path: item.path,
+                phoneNumber: phoneCtrl.text.trim(),
+                contactName: nameCtrl.text.trim(),
+                notes: notesCtrl.text.trim(),
               );
-              if (confirm == true) {
-                await provider.deleteRecording(item.path);
-              }
             },
+            child: const Text('Save Metadata', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),

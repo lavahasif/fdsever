@@ -5,12 +5,20 @@ class CallRecordingItem {
   final String name;
   final int sizeBytes;
   final DateTime lastModified;
+  final String phoneNumber;
+  final String contactName;
+  final String notes;
+  final double durationSeconds;
 
   CallRecordingItem({
     required this.path,
     required this.name,
     required this.sizeBytes,
     required this.lastModified,
+    this.phoneNumber = '',
+    this.contactName = '',
+    this.notes = '',
+    this.durationSeconds = 0.0,
   });
 
   factory CallRecordingItem.fromMap(Map<dynamic, dynamic> map) {
@@ -21,7 +29,51 @@ class CallRecordingItem {
       lastModified: DateTime.fromMillisecondsSinceEpoch(
         (map['lastModified'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
       ),
+      phoneNumber: map['phoneNumber']?.toString() ?? '',
+      contactName: map['contactName']?.toString() ?? '',
+      notes: map['notes']?.toString() ?? '',
+      durationSeconds: (map['durationSeconds'] as num?)?.toDouble() ?? 0.0,
     );
+  }
+
+  CallRecordingItem copyWith({
+    String? path,
+    String? name,
+    int? sizeBytes,
+    DateTime? lastModified,
+    String? phoneNumber,
+    String? contactName,
+    String? notes,
+    double? durationSeconds,
+  }) {
+    return CallRecordingItem(
+      path: path ?? this.path,
+      name: name ?? this.name,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
+      lastModified: lastModified ?? this.lastModified,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      contactName: contactName ?? this.contactName,
+      notes: notes ?? this.notes,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+    );
+  }
+
+  String get displayName {
+    if (contactName.trim().isNotEmpty) {
+      return contactName.trim();
+    }
+    if (phoneNumber.trim().isNotEmpty && phoneNumber.trim() != 'Unknown') {
+      return phoneNumber.trim();
+    }
+    return name;
+  }
+
+  String get formattedDuration {
+    if (durationSeconds <= 0) return '';
+    final totalSec = durationSeconds.toInt();
+    final mins = totalSec ~/ 60;
+    final secs = totalSec % 60;
+    return '${_twoDigits(mins)}:${_twoDigits(secs)}';
   }
 
   String get formattedSize {

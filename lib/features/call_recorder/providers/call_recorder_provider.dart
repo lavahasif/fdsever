@@ -21,6 +21,13 @@ class CallRecorderProvider extends ChangeNotifier {
 
   bool _hasAudioPermission = false;
   bool _hasPhonePermission = false;
+  bool _hasCallLogPermission = false;
+
+  // Audio Playback State
+  bool _isAudioPlaying = false;
+  String _currentlyPlayingPath = '';
+  int _playbackPositionMs = 0;
+  int _playbackDurationMs = 0;
 
   List<CallRecordingItem> _recordings = [];
   Timer? _pollingTimer;
@@ -39,10 +46,30 @@ class CallRecorderProvider extends ChangeNotifier {
 
   bool get hasAudioPermission => _hasAudioPermission;
   bool get hasPhonePermission => _hasPhonePermission;
+  bool get hasCallLogPermission => _hasCallLogPermission;
   bool get allPermissionsGranted => _hasAudioPermission && _hasPhonePermission;
+
+  // Audio Player getters
+  bool get isAudioPlaying => _isAudioPlaying;
+  String get currentlyPlayingPath => _currentlyPlayingPath;
+  int get playbackPositionMs => _playbackPositionMs;
+  int get playbackDurationMs => _playbackDurationMs;
+  double get playbackProgress => _playbackDurationMs > 0
+      ? (_playbackPositionMs / _playbackDurationMs).clamp(0.0, 1.0)
+      : 0.0;
+
+  bool isTrackPlaying(String path) => _isAudioPlaying && _currentlyPlayingPath == path;
+  bool isTrackSelected(String path) => _currentlyPlayingPath == path;
 
   String get formattedDuration {
     final totalSec = _durationSeconds.toInt();
+    final mins = totalSec ~/ 60;
+    final secs = totalSec % 60;
+    return '${_twoDigits(mins)}:${_twoDigits(secs)}';
+  }
+
+  static String formatMs(int ms) {
+    final totalSec = ms ~/ 1000;
     final mins = totalSec ~/ 60;
     final secs = totalSec % 60;
     return '${_twoDigits(mins)}:${_twoDigits(secs)}';
@@ -65,7 +92,9 @@ class CallRecorderProvider extends ChangeNotifier {
       _callState = state;
       _incomingNumber = number;
       if (state == 'OFFHOOK') {
-        _statusMessage = 'Cellular Call Active';
+        _statusMessage = number.isNotEmpty && number != 'Unknown'
+            ? 'Call in Progress ($number)'
+            : 'Cellular Call Active';
       } else if (state == 'RINGING') {
         _statusMessage = 'Incoming Call Ringing ($number)';
       } else {
@@ -94,6 +123,14 @@ class CallRecorderProvider extends ChangeNotifier {
       notifyListeners();
     };
 
+    CallRecorderBridge.onAudioPlaybackStateChanged = (status) {
+      _isAudioPlaying = status['isPlaying'] as bool? ?? false;
+      _playbackPositionMs = (status['currentPositionMs'] as num?)?.toInt() ?? 0;
+      _playbackDurationMs = (status['durationMs'] as num?)?.toInt() ?? 0;
+      _currentlyPlayingPath = status['filePath']?.toString() ?? '';
+      notifyListeners();
+    };
+
     await checkPermissions();
     await syncAutoRecordConfig();
     await checkInitialState();
@@ -108,6 +145,7 @@ class CallRecorderProvider extends ChangeNotifier {
     final perms = await CallRecorderBridge.hasPermissions();
     _hasAudioPermission = perms['audio'] ?? false;
     _hasPhonePermission = perms['phone'] ?? false;
+    _hasCallLogPermission = perms['callLog'] ?? false;
     notifyListeners();
     return allPermissionsGranted;
   }
@@ -144,7 +182,7 @@ class CallRecorderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> startManualRecording() async {
+  Future<bool> startManualRecording({String? phoneNumber}) async {
     await checkPermissions();
     if (!allPermissionsGranted) {
       final granted = await requestPermissions();
@@ -155,7 +193,10 @@ class CallRecorderProvider extends ChangeNotifier {
       }
     }
 
-    final success = await CallRecorderBridge.startRecording(gain: _gainMultiplier);
+    final success = await CallRecorderBridge.startRecording(
+      gain: _gainMultiplier,
+      phoneNumber: phoneNumber,
+    );
     if (success) {
       _isRecording = true;
       _statusMessage = 'Recording Started';
@@ -176,6 +217,72 @@ class CallRecorderProvider extends ChangeNotifier {
       notifyListeners();
     }
     return success;
+  }
+
+  // ── Audio Playback Controls ───────────────────────────────────────────────
+  Future<void> togglePlay(String path) async {
+    if (_currentlyPlayingPath == path) {
+      if (_isAudioPlaying) {
+        await CallRecorderBridge.pauseAudio();
+      } else {
+        await CallRecorderBridge.resumeAudio();
+      }
+    } else {
+      _currentlyPlayingPath = path;
+      _isAudioPlaying = true;
+      notifyListeners();
+      final ok = await CallRecorderBridge.playAudio(path);
+      if (!ok) {
+        _isAudioPlaying = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> pauseAudio() async {
+    await CallRecorderBridge.pauseAudio();
+  }
+
+  Future<void> stopAudio() async {
+    await CallRecorderBridge.stopAudio();
+    _isAudioPlaying = false;
+    _currentlyPlayingPath = '';
+    _playbackPositionMs = 0;
+    _playbackDurationMs = 0;
+    notifyListeners();
+  }
+
+  Future<void> seekAudio(int positionMs) async {
+    _playbackPositionMs = positionMs;
+    notifyListeners();
+    await CallRecorderBridge.seekAudio(positionMs);
+  }
+
+  // ── Metadata Management ───────────────────────────────────────────────────
+  Future<bool> updateRecordingMetadata({
+    required String path,
+    required String phoneNumber,
+    String contactName = '',
+    String notes = '',
+  }) async {
+    final ok = await CallRecorderBridge.updateRecordingMetadata(
+      path: path,
+      phoneNumber: phoneNumber,
+      contactName: contactName,
+      notes: notes,
+    );
+    if (ok) {
+      final index = _recordings.indexWhere((r) => r.path == path);
+      if (index != -1) {
+        _recordings[index] = _recordings[index].copyWith(
+          phoneNumber: phoneNumber,
+          contactName: contactName,
+          notes: notes,
+        );
+        notifyListeners();
+      }
+    }
+    return ok;
   }
 
   Future<void> _pollRecordingStats() async {
@@ -206,6 +313,9 @@ class CallRecorderProvider extends ChangeNotifier {
   }
 
   Future<bool> deleteRecording(String path) async {
+    if (_currentlyPlayingPath == path) {
+      await stopAudio();
+    }
     final success = await CallRecorderBridge.deleteRecording(path);
     if (success) {
       await refreshRecordings();
@@ -216,6 +326,7 @@ class CallRecorderProvider extends ChangeNotifier {
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    CallRecorderBridge.stopAudio();
     super.dispose();
   }
 }
