@@ -176,7 +176,9 @@ class FocusAccessibilityService : AccessibilityService() {
     private val enforcementHandler = Handler(Looper.getMainLooper())
     private var currentlyBlockedPkg: String? = null
     private var enforcementRunning = false
-    private val ENFORCEMENT_INTERVAL_MS = 500L // Re-check every 500ms
+    private var enforcementIntervalMs = 500L // Start at 500ms, backoff to 2s
+    private val ENFORCEMENT_INTERVAL_BASE = 500L
+    private val ENFORCEMENT_INTERVAL_MAX = 2000L
     private var consecutiveHomeActions = 0
     private val MAX_CONSECUTIVE_HOME = 3 // Don't spam HOME more than 3 times in a row
 
@@ -213,13 +215,18 @@ class FocusAccessibilityService : AccessibilityService() {
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
 
-            enforcementHandler.postDelayed(this, ENFORCEMENT_INTERVAL_MS)
+            // Feature #5: Exponential backoff — increase interval after consecutive same-state checks
+            if (consecutiveHomeActions > 1) {
+                enforcementIntervalMs = (enforcementIntervalMs * 3 / 2).coerceAtMost(ENFORCEMENT_INTERVAL_MAX)
+            }
+            enforcementHandler.postDelayed(this, enforcementIntervalMs)
         }
     }
 
     private fun startEnforcement(pkg: String) {
         currentlyBlockedPkg = pkg
         consecutiveHomeActions = 0
+        enforcementIntervalMs = ENFORCEMENT_INTERVAL_BASE
         if (!enforcementRunning) {
             enforcementRunning = true
             enforcementHandler.postDelayed(enforcementRunnable, ENFORCEMENT_INTERVAL_MS)
@@ -241,18 +248,56 @@ class FocusAccessibilityService : AccessibilityService() {
 
         try {
             val info = serviceInfo ?: AccessibilityServiceInfo()
-            info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+            // Feature #22: Only listen to window state, content changes, and scroll
+            info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+                    AccessibilityEvent.TYPE_VIEW_SCROLLED
             info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
             info.flags = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
-                    AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
-            info.notificationTimeout = 20
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            // Feature #22: Increased from 20ms to 100ms for event batching
+            info.notificationTimeout = 100
+            // Feature #23: Package-scoped events — only listen to blocked apps + shorts hosts
+            refreshPackageFilter(info)
             serviceInfo = info
         } catch (e: Exception) {
             Log.e(TAG, "Error configuring service info: ${e.message}")
         }
 
-        Log.i(TAG, "FocusGuard Accessibility Service connected (active=$isStrictActive, blockShorts=$blockShortsAndReels, budget=${hourlyBudgetMinutes}m/h)")
+        Log.i(TAG, "FocusGuard Accessibility Service connected (active=$isStrictActive, blockShorts=$blockShortsAndReels, budget=${hourlyBudgetMinutes}m/h, optimized=true)")
+    }
+
+    /**
+     * Feature #23: Dynamically set packageNames filter on the service info.
+     * Only receives events from blocked packages + YouTube + Instagram + TikTok + Twitter.
+     */
+    private fun refreshPackageFilter(info: AccessibilityServiceInfo? = null) {
+        try {
+            val si = info ?: (serviceInfo ?: return)
+            val pkgs = mutableSetOf<String>()
+            pkgs.addAll(blockedPackages)
+            // Always monitor Shorts/Reels host apps even if not in blocked list
+            if (blockShortsAndReels) {
+                pkgs.add("com.google.android.youtube")
+                pkgs.add("app.revanced.android.youtube")
+                pkgs.add("com.google.android.youtube.tv")
+                pkgs.add("com.instagram.android")
+                pkgs.add("com.zhiliaoapp.musically")   // TikTok (Feature #24)
+                pkgs.add("com.ss.android.ugc.trill")    // TikTok (Feature #24)
+                pkgs.add("com.twitter.android")          // Twitter/X (Feature #25)
+                pkgs.add("com.twitter.android.lite")
+            }
+            if (pkgs.isNotEmpty()) {
+                si.packageNames = pkgs.toTypedArray()
+            } else {
+                si.packageNames = null // Listen to all if no filter
+            }
+            if (info == null) {
+                serviceInfo = si
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error refreshing package filter: ${e.message}")
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -377,6 +422,13 @@ class FocusAccessibilityService : AccessibilityService() {
 
         // 3. Continuous Shorts & Reels Shield (runs whenever shield is enabled)
         if (blockShortsAndReels) {
+            // Feature #24: TikTok detection
+            val isTikTokPkg = packageName == "com.zhiliaoapp.musically" ||
+                    packageName == "com.ss.android.ugc.trill"
+            // Feature #25: Twitter/X Explore detection
+            val isTwitterPkg = packageName == "com.twitter.android" ||
+                    packageName == "com.twitter.android.lite"
+
             val isYouTubePkg = packageName == "com.google.android.youtube" ||
                     packageName == "app.revanced.android.youtube" ||
                     packageName == "com.google.android.youtube.tv"
@@ -392,7 +444,7 @@ class FocusAccessibilityService : AccessibilityService() {
 
 
     private var lastYouTubeScanTime: Long = 0L
-    private val youTubeScanDebounceMs: Long = 200L
+    private val youTubeScanDebounceMs: Long = 500L  // Feature #21: Increased from 200ms to 500ms
 
     private fun checkAndBlockYouTubeShorts(event: AccessibilityEvent, actualPkg: String) {
         // Fast-path: Check event class or text directly without scanning tree (0 CPU)
@@ -488,7 +540,7 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun scanNodeForShorts(node: AccessibilityNodeInfo, depth: Int): Boolean {
-        if (depth > 15) return false // Limit depth to prevent ANR
+        if (depth > 8) return false // Feature #21: Reduced from 15 to 8 for battery
 
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""
@@ -549,7 +601,7 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private var lastInstagramScanTime: Long = 0L
-    private val instagramScanDebounceMs: Long = 200L
+    private val instagramScanDebounceMs: Long = 500L  // Feature #21: Increased from 200ms
 
     private fun checkAndBlockInstagramReels(event: AccessibilityEvent) {
         // Fast-path: event class check
@@ -616,7 +668,7 @@ class FocusAccessibilityService : AccessibilityService() {
     }
 
     private fun scanNodeForReels(node: AccessibilityNodeInfo, depth: Int): Boolean {
-        if (depth > 15) return false
+        if (depth > 8) return false  // Feature #21: Reduced from 15 to 8 for battery
 
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         val desc = node.contentDescription?.toString()?.lowercase() ?: ""

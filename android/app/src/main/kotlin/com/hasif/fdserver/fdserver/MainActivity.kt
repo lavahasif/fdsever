@@ -12,6 +12,8 @@ import android.net.VpnService
 import com.hasif.fdserver.fdserver.vpn.ProxyVpnService
 import android.app.AppOpsManager
 import com.hasif.fdserver.fdserver.focus_guard.FocusAccessibilityService
+import com.hasif.fdserver.fdserver.focus_guard.NativeMonitorBridge
+import com.hasif.fdserver.fdserver.focus_guard.NativeMonitorService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,6 +26,7 @@ class MainActivity : FlutterActivity() {
     private val VPN_CHANNEL = "fdserver/vpn"
     private val CRASH_CHANNEL = "fdserver/crash_logs"
     private val FOCUS_GUARD_CHANNEL = "fdserver/focus_guard"
+    private val NATIVE_MONITOR_CHANNEL = "fdserver/native_monitor"
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
     private var focusGuardChannel: MethodChannel? = null
@@ -585,6 +588,148 @@ class MainActivity : FlutterActivity() {
                             runOnUiThread { result.success(emptyList<Map<String, String>>()) }
                         }
                     }.start()
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // ── NDK Native Monitor Channel ──────────────────────────────────────
+        NativeMonitorBridge.init(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NATIVE_MONITOR_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "startNativeMonitor" -> {
+                    try {
+                        val intent = Intent(this, NativeMonitorService::class.java).apply {
+                            action = NativeMonitorService.ACTION_START
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("NATIVE_START_ERROR", e.message, null)
+                    }
+                }
+                "stopNativeMonitor" -> {
+                    try {
+                        val intent = Intent(this, NativeMonitorService::class.java).apply {
+                            action = NativeMonitorService.ACTION_STOP
+                        }
+                        startService(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("NATIVE_STOP_ERROR", e.message, null)
+                    }
+                }
+                "isNativeMonitorRunning" -> {
+                    result.success(NativeMonitorService.isRunning)
+                }
+                "isNativeLibraryLoaded" -> {
+                    result.success(NativeMonitorBridge.isLoaded())
+                }
+                "getNativeStats" -> {
+                    result.success(NativeMonitorBridge.safeGetStats())
+                }
+                "getNativeTemptationLog" -> {
+                    try {
+                        if (NativeMonitorBridge.isLoaded()) {
+                            result.success(NativeMonitorBridge.nativeGetTemptationLog())
+                        } else {
+                            result.success("[]")
+                        }
+                    } catch (_: Exception) { result.success("[]") }
+                }
+                "getMomentumScore" -> {
+                    try {
+                        if (NativeMonitorBridge.isLoaded()) {
+                            result.success(NativeMonitorBridge.nativeGetMomentumScore())
+                        } else {
+                            result.success(100)
+                        }
+                    } catch (_: Exception) { result.success(100) }
+                }
+                "syncNativeConfig" -> {
+                    try {
+                        FocusAccessibilityService.loadConfig(this)
+                        NativeMonitorBridge.safeSetBlockedPackages(
+                            FocusAccessibilityService.blockedPackages
+                        )
+                        if (NativeMonitorBridge.isLoaded()) {
+                            NativeMonitorBridge.nativeSetStrictMode(
+                                FocusAccessibilityService.isStrictActive
+                            )
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SYNC_ERROR", e.message, null)
+                    }
+                }
+                "setFeatureFlag" -> {
+                    try {
+                        val name = call.argument<String>("name") ?: ""
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        NativeMonitorBridge.safeSetFeatureFlag(name, enabled)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("FLAG_ERROR", e.message, null)
+                    }
+                }
+                "setZenMode" -> {
+                    try {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        if (NativeMonitorBridge.isLoaded()) {
+                            NativeMonitorBridge.nativeSetZenMode(enabled)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("ZEN_ERROR", e.message, null)
+                    }
+                }
+                "setNightOwl" -> {
+                    try {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        if (NativeMonitorBridge.isLoaded()) {
+                            NativeMonitorBridge.nativeSetNightOwl(enabled)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("NIGHT_OWL_ERROR", e.message, null)
+                    }
+                }
+                "setRewardUnlock" -> {
+                    try {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        val seconds = call.argument<Int>("seconds") ?: 0
+                        val packages = call.argument<List<String>>("packages") ?: emptyList()
+                        if (NativeMonitorBridge.isLoaded()) {
+                            NativeMonitorBridge.nativeSetRewardUnlock(enabled, seconds)
+                            NativeMonitorBridge.nativeSetUnlockedPackages(packages.toTypedArray())
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("REWARD_ERROR", e.message, null)
+                    }
+                }
+                "setGeofenceStrict" -> {
+                    try {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        if (NativeMonitorBridge.isLoaded()) {
+                            NativeMonitorBridge.nativeSetGeofenceStrict(enabled)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("GEOFENCE_ERROR", e.message, null)
+                    }
+                }
+                "acknowledgeBreak" -> {
+                    try {
+                        if (NativeMonitorBridge.isLoaded()) {
+                            NativeMonitorBridge.nativeAcknowledgeBreak()
+                        }
+                        result.success(true)
+                    } catch (_: Exception) { result.success(false) }
                 }
                 else -> result.notImplemented()
             }

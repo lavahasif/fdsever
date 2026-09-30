@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Optimized for battery performance (Features #21-23):
+     - Only listen to window state changes, content changes, and scroll events
+     - Increased notification timeout from 20ms to 100ms for event batching
+     - Note: packageNames filtering is done programmatically since the blocked list is dynamic -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews|flagReportViewIds"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:description="@string/accessibility_service_description"
-    android:notificationTimeout="20" />
+    android:notificationTimeout="100" />
