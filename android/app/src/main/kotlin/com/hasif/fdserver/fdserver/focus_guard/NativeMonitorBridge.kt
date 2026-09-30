@@ -37,8 +37,9 @@ class NativeMonitorBridge {
                     System.loadLibrary("fdserver_monitor")
                     isLibraryLoaded = true
                     Log.i(TAG, "Native monitor library loaded successfully")
-                } catch (e: UnsatisfiedLinkError) {
-                    Log.e(TAG, "Failed to load native monitor library: ${e.message}")
+                } catch (t: Throwable) {
+                    isLibraryLoaded = false
+                    Log.e(TAG, "Failed to load native monitor library: ${t.message}")
                 }
             }
         }
@@ -187,31 +188,31 @@ class NativeMonitorBridge {
 
         fun safeStart() {
             if (!isLibraryLoaded) return
-            try { nativeStartMonitor() } catch (e: Exception) {
-                Log.e(TAG, "safeStart error: ${e.message}")
+            try { nativeStartMonitor() } catch (t: Throwable) {
+                Log.e(TAG, "safeStart error: ${t.message}")
             }
         }
 
         fun safeStop() {
             if (!isLibraryLoaded) return
-            try { nativeStopMonitor() } catch (e: Exception) {
-                Log.e(TAG, "safeStop error: ${e.message}")
+            try { nativeStopMonitor() } catch (t: Throwable) {
+                Log.e(TAG, "safeStop error: ${t.message}")
             }
         }
 
         fun safeSetBlockedPackages(packages: Set<String>) {
             if (!isLibraryLoaded) return
-            try { nativeSetBlockedPackages(packages.toTypedArray()) } catch (_: Exception) {}
+            try { nativeSetBlockedPackages(packages.toTypedArray()) } catch (_: Throwable) {}
         }
 
         fun safeGetStats(): String {
             if (!isLibraryLoaded) return "{}"
-            return try { nativeGetStats() } catch (_: Exception) { "{}" }
+            return try { nativeGetStats() } catch (_: Throwable) { "{}" }
         }
 
         fun safeSetFeatureFlag(name: String, enabled: Boolean) {
             if (!isLibraryLoaded) return
-            try { nativeSetFeatureFlag(name, enabled) } catch (_: Exception) {}
+            try { nativeSetFeatureFlag(name, enabled) } catch (_: Throwable) {}
         }
     }
 }

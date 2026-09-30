@@ -594,7 +594,11 @@ class MainActivity : FlutterActivity() {
         }
 
         // ── NDK Native Monitor Channel ──────────────────────────────────────
-        NativeMonitorBridge.init(applicationContext)
+        try {
+            NativeMonitorBridge.init(applicationContext)
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Failed to init NativeMonitorBridge: ${t.message}")
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NATIVE_MONITOR_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startNativeMonitor" -> {
@@ -608,8 +612,8 @@ class MainActivity : FlutterActivity() {
                             startService(intent)
                         }
                         result.success(true)
-                    } catch (e: Exception) {
-                        result.error("NATIVE_START_ERROR", e.message, null)
+                    } catch (t: Throwable) {
+                        result.error("NATIVE_START_ERROR", t.message, null)
                     }
                 }
                 "stopNativeMonitor" -> {

@@ -32,25 +32,28 @@ class FocusBootReceiver : BroadcastReceiver() {
                 Log.e(TAG, "Error restoring FocusGuard config: ${e.message}")
             }
 
-            // 2. Start NDK native monitor service (Feature #10: cold start recovery)
-            try {
-                val hasBlockedApps = FocusAccessibilityService.blockedPackages.isNotEmpty()
-                val isActive = FocusAccessibilityService.isStrictActive ||
-                               FocusAccessibilityService.blockedPackages.isNotEmpty()
+            // 2. Start NDK native monitor service on device boot only (not on package replaced)
+            // (Android 12+ throws ForegroundServiceStartNotAllowedException if called from MY_PACKAGE_REPLACED)
+            if (action == Intent.ACTION_BOOT_COMPLETED || action == "android.intent.action.QUICKBOOT_POWERON") {
+                try {
+                    val hasBlockedApps = FocusAccessibilityService.blockedPackages.isNotEmpty()
+                    val isActive = FocusAccessibilityService.isStrictActive ||
+                                   FocusAccessibilityService.blockedPackages.isNotEmpty()
 
-                if (isActive && hasBlockedApps) {
-                    val serviceIntent = Intent(context, NativeMonitorService::class.java).apply {
-                        this.action = NativeMonitorService.ACTION_START
+                    if (isActive && hasBlockedApps) {
+                        val serviceIntent = Intent(context, NativeMonitorService::class.java).apply {
+                            this.action = NativeMonitorService.ACTION_START
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                        Log.i(TAG, "Native monitor service started on boot")
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
-                    }
-                    Log.i(TAG, "Native monitor service started on boot")
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not start native monitor on boot: ${t.message}")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting native monitor on boot: ${e.message}")
             }
         }
     }

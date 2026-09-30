@@ -59,8 +59,24 @@ class NativeMonitorService : Service() {
                 return START_STICKY
             }
             else -> {
-                startForeground(NOTIFICATION_ID, createNotification())
-                startMonitoring()
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            startForeground(
+                                NOTIFICATION_ID,
+                                createNotification(),
+                                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                            )
+                        } catch (_: Throwable) {
+                            startForeground(NOTIFICATION_ID, createNotification())
+                        }
+                    } else {
+                        startForeground(NOTIFICATION_ID, createNotification())
+                    }
+                    startMonitoring()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Failed to start foreground service: ${t.message}")
+                }
                 return START_STICKY
             }
         }

@@ -489,10 +489,14 @@ extern "C" {
  */
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
     fdserver::g_jvm = vm;
-    JNIEnv* env;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
+    JNIEnv* env = nullptr;
+    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK || env == nullptr) {
         LOGE("JNI_OnLoad: Failed to get JNIEnv");
-        return JNI_ERR;
+        return JNI_VERSION_1_6;
+    }
+    
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
     }
     
     // Cache the Kotlin bridge class (global ref survives GC)
@@ -500,7 +504,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
         "com/hasif/fdserver/fdserver/focus_guard/NativeMonitorBridge");
     if (localClass == nullptr) {
         LOGE("JNI_OnLoad: NativeMonitorBridge class not found");
-        return JNI_ERR;
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        return JNI_VERSION_1_6;
     }
     fdserver::g_bridge_class = (jclass)env->NewGlobalRef(localClass);
     env->DeleteLocalRef(localClass);
@@ -508,16 +515,22 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
     // Cache method IDs
     fdserver::g_get_foreground_method = env->GetStaticMethodID(
         fdserver::g_bridge_class, "getForegroundPackage", "()Ljava/lang/String;");
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     fdserver::g_on_blocked_method = env->GetStaticMethodID(
         fdserver::g_bridge_class, "onBlockedAppDetected",
         "(Ljava/lang/String;Ljava/lang/String;)V");
-    
-    if (!fdserver::g_get_foreground_method || !fdserver::g_on_blocked_method) {
-        LOGE("JNI_OnLoad: Failed to find bridge methods");
-        return JNI_ERR;
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
     }
     
-    LOGI("✅ FDServer NDK Monitor library loaded (JNI_VERSION_1_6)");
+    if (!fdserver::g_get_foreground_method || !fdserver::g_on_blocked_method) {
+        LOGW("JNI_OnLoad: Some bridge methods could not be cached");
+    } else {
+        LOGI("✅ FDServer NDK Monitor library loaded (JNI_VERSION_1_6)");
+    }
     return JNI_VERSION_1_6;
 }
 
