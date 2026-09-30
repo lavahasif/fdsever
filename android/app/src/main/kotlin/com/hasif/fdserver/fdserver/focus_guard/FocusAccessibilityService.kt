@@ -229,7 +229,7 @@ class FocusAccessibilityService : AccessibilityService() {
         enforcementIntervalMs = ENFORCEMENT_INTERVAL_BASE
         if (!enforcementRunning) {
             enforcementRunning = true
-            enforcementHandler.postDelayed(enforcementRunnable, ENFORCEMENT_INTERVAL_MS)
+            enforcementHandler.postDelayed(enforcementRunnable, enforcementIntervalMs)
         }
     }
 
