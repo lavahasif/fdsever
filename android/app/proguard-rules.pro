@@ -28,3 +28,7 @@
 -keepattributes *Annotation*
 -keepattributes Signature
 -keepattributes SourceFile,LineNumberTable
+
+# Suppress missing Play Core classes referenced by Flutter deferred components
+-dontwarn com.google.android.play.core.**
+-dontwarn io.flutter.embedding.engine.deferredcomponents.**
