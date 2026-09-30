@@ -12,8 +12,10 @@ import '../screens/mindful_friction_screen.dart';
 import '../screens/motivation_reader_screen.dart';
 import '../screens/prayer_intervention_screen.dart';
 import '../screens/reality_check_screen.dart';
+import '../models/advanced_feature.dart';
 import '../services/focus_analytics_service.dart';
 import '../services/focus_guard_bridge.dart';
+import '../services/native_monitor_bridge.dart';
 import '../services/prayer_dhikr_service.dart';
 
 class InterventionAlert {
@@ -39,6 +41,9 @@ class FocusGuardProvider extends ChangeNotifier {
   static const String _keyDiversionType = 'focus_guard_diversion_type';
   static const String _keyAutoDivert = 'focus_guard_auto_divert';
   static const String _keySchedules = 'focus_guard_schedules';
+  static const String _keyFeatureFlags = 'focus_guard_feature_flags';
+
+  final Map<String, bool> _featureFlags = {};
 
   bool _isLockActive = false;
   bool _blockShortsAndReels = true;
@@ -374,6 +379,50 @@ class FocusGuardProvider extends ChangeNotifier {
         _blockedApps = decoded.map((e) => BlockedAppInfo.fromJson(Map<String, dynamic>.from(e as Map))).toList();
       } catch (_) {}
     }
+
+    final flagsJson = prefs.getString(_keyFeatureFlags);
+    if (flagsJson != null) {
+      try {
+        final decoded = jsonDecode(flagsJson) as Map<String, dynamic>;
+        _featureFlags.clear();
+        decoded.forEach((k, v) {
+          if (v is bool) _featureFlags[k] = v;
+        });
+      } catch (_) {}
+    }
+
+    notifyListeners();
+  }
+
+  bool isFeatureEnabled(String key) {
+    if (_featureFlags.containsKey(key)) {
+      return _featureFlags[key]!;
+    }
+    try {
+      final feat = allAdvancedFeatures.firstWhere((f) => f.key == key);
+      return feat.defaultEnabled;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> setFeatureEnabled(String key, bool enabled) async {
+    _featureFlags[key] = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFeatureFlags, jsonEncode(_featureFlags));
+    notifyListeners();
+  }
+
+  Future<void> resetAllFeatureFlags() async {
+    _featureFlags.clear();
+    for (final feat in allAdvancedFeatures) {
+      _featureFlags[feat.key] = feat.defaultEnabled;
+      if (feat.isNative) {
+        NativeMonitorBridge.setFeatureFlag(feat.key, feat.defaultEnabled);
+      }
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyFeatureFlags, jsonEncode(_featureFlags));
     notifyListeners();
   }
 

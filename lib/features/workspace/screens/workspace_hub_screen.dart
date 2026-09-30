@@ -5,6 +5,8 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../../shared/widgets/category_segmented_bar.dart';
 import '../../auto_trail/providers/auto_trail_provider.dart';
 import '../../auto_trail/screens/auto_trail_screen.dart';
+import '../../call_recorder/providers/call_recorder_provider.dart';
+import '../../call_recorder/screens/call_recorder_screen.dart';
 import '../../focus_guard/providers/focus_guard_provider.dart';
 import '../../focus_guard/screens/focus_guard_hub_screen.dart';
 import '../../notes/providers/notes_provider.dart';
@@ -44,6 +46,7 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
     final tutorials = context.watch<TutorialsProvider>();
     final autoTrail = context.watch<AutoTrailProvider>();
     final focusGuard = context.watch<FocusGuardProvider>();
+    final callRecorder = context.watch<CallRecorderProvider>();
 
     final tabs = [
       CategoryTabItem(
@@ -67,10 +70,19 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
         badgeText: focusGuard.isLockActive ? 'Locked' : (focusGuard.temptationsResisted > 0 ? '${focusGuard.temptationsResisted}' : null),
         showActiveDot: focusGuard.isLockActive,
       ),
+      CategoryTabItem(
+        title: 'Call Recorder',
+        icon: LucideIcons.phoneCall,
+        badgeText: callRecorder.isRecording ? 'REC' : (callRecorder.recordings.isNotEmpty ? '${callRecorder.recordings.length}' : null),
+        showActiveDot: callRecorder.isRecording,
+      ),
     ];
 
     Widget body;
     switch (_selectedSubIndex) {
+      case 4:
+        body = const CallRecorderScreen();
+        break;
       case 3:
         body = const FocusGuardHubScreen();
         break;

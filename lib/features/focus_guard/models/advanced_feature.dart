@@ -1,3 +1,5 @@
+library;
+
 /// Advanced feature definitions for the Focus Guard system.
 /// Each feature has a unique key, display name, description, category,
 /// battery impact level, and default state.

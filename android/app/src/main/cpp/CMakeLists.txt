@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(fdserver_monitor SHARED
     native_monitor.cpp
+    wav_writer.cpp
+    call_recorder_jni.cpp
 )
 
 # Android log library for __android_log_print

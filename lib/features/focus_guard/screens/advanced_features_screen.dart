@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
 import '../models/advanced_feature.dart';
 import '../providers/focus_guard_provider.dart';
 import '../services/native_monitor_bridge.dart';
@@ -17,7 +16,6 @@ class AdvancedFeaturesScreen extends StatefulWidget {
 
 class _AdvancedFeaturesScreenState extends State<AdvancedFeaturesScreen> {
   Map<String, dynamic> _nativeStats = {};
-  bool _isLoading = true;
 
   @override
   void initState() {
@@ -30,7 +28,6 @@ class _AdvancedFeaturesScreenState extends State<AdvancedFeaturesScreen> {
     if (mounted) {
       setState(() {
         _nativeStats = stats;
-        _isLoading = false;
       });
     }
   }
@@ -39,7 +36,6 @@ class _AdvancedFeaturesScreenState extends State<AdvancedFeaturesScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<FocusGuardProvider>();
     final featuresByCategory = getFeaturesByCategory();
-    final theme = ShadTheme.of(context);
 
     return Scaffold(
       backgroundColor: const Color(0xFF09090B),
@@ -352,7 +348,7 @@ class _AdvancedFeaturesScreenState extends State<AdvancedFeaturesScreen> {
               NativeMonitorBridge.setFeatureFlag(feature.key, val);
             }
           },
-          activeColor: const Color(0xFF818CF8),
+          activeThumbColor: const Color(0xFF818CF8),
           activeTrackColor: const Color(0xFF4F46E5).withValues(alpha: 0.5),
           inactiveThumbColor: const Color(0xFF52525B),
           inactiveTrackColor: const Color(0xFF27272A),

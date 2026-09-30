@@ -6,9 +6,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../auto_trail/providers/auto_trail_provider.dart';
 import '../../focus_guard/providers/focus_guard_provider.dart';
 import '../../network_scanner/providers/scanner_provider.dart';
-import '../../notes/providers/notes_provider.dart';
 import '../../proxy_server/providers/proxy_provider.dart';
-import '../../tutorials/providers/tutorials_provider.dart';
 import '../../web_server/providers/web_server_provider.dart';
 
 typedef NavigationCallback = void Function(int pillarIndex, [int? subIndex]);

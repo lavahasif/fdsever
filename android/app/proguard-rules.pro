@@ -14,6 +14,14 @@
     public <fields>;
 }
 
+# Preserve Call Recorder Native Bridge & Services
+-keep class com.hasif.fdserver.fdserver.call_recorder.** { *; }
+-keepclassmembers class com.hasif.fdserver.fdserver.call_recorder.** {
+    public static <methods>;
+    public <methods>;
+    public <fields>;
+}
+
 # Preserve all native methods across the project
 -keepclasseswithmembernames class * {
     native <methods>;

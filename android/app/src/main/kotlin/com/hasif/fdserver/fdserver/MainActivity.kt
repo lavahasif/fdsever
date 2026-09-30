@@ -14,6 +14,9 @@ import android.app.AppOpsManager
 import com.hasif.fdserver.fdserver.focus_guard.FocusAccessibilityService
 import com.hasif.fdserver.fdserver.focus_guard.NativeMonitorBridge
 import com.hasif.fdserver.fdserver.focus_guard.NativeMonitorService
+import com.hasif.fdserver.fdserver.call_recorder.CallRecorderBridge
+import com.hasif.fdserver.fdserver.call_recorder.CallRecorderService
+import com.hasif.fdserver.fdserver.call_recorder.CallStateManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -27,6 +30,11 @@ class MainActivity : FlutterActivity() {
     private val CRASH_CHANNEL = "fdserver/crash_logs"
     private val FOCUS_GUARD_CHANNEL = "fdserver/focus_guard"
     private val NATIVE_MONITOR_CHANNEL = "fdserver/native_monitor"
+    private val CALL_RECORDER_CHANNEL = "fdserver/call_recorder"
+    private var callStateManager: CallStateManager? = null
+    private var callRecorderChannel: MethodChannel? = null
+    private var isAutoRecordEnabled: Boolean = false
+    private var autoRecordGain: Float = 1.8f
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
     private var focusGuardChannel: MethodChannel? = null
@@ -794,6 +802,139 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // ── Call Audio Recorder Channel ──────────────────────────────────────
+        CallRecorderBridge.init()
+        callRecorderChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_RECORDER_CHANNEL).apply {
+            setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startRecording" -> {
+                        try {
+                            val path = call.argument<String>("path")
+                            val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
+                            val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
+                                action = CallRecorderService.ACTION_START
+                                if (path != null) putExtra(CallRecorderService.EXTRA_FILE_PATH, path)
+                                putExtra(CallRecorderService.EXTRA_GAIN, gain)
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
+                            result.success(true)
+                        } catch (t: Throwable) {
+                            result.error("START_RECORD_ERROR", t.message, null)
+                        }
+                    }
+                    "stopRecording" -> {
+                        try {
+                            val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
+                                action = CallRecorderService.ACTION_STOP
+                            }
+                            startService(intent)
+                            result.success(true)
+                        } catch (t: Throwable) {
+                            result.error("STOP_RECORD_ERROR", t.message, null)
+                        }
+                    }
+                    "isRecording" -> {
+                        result.success(CallRecorderService.isRunning)
+                    }
+                    "getRecordingStats" -> {
+                        val duration = CallRecorderBridge.safeGetDuration()
+                        val bytes = CallRecorderBridge.safeGetBytes()
+                        val isRec = CallRecorderService.isRunning
+                        val path = CallRecorderService.currentRecordingPath ?: ""
+                        val amp = CallRecorderService.latestAmplitude
+                        result.success(mapOf(
+                            "isRecording" to isRec,
+                            "durationSeconds" to duration,
+                            "bytesWritten" to bytes,
+                            "filePath" to path,
+                            "amplitude" to amp
+                        ))
+                    }
+                    "getCallState" -> {
+                        val state = callStateManager?.currentCallState ?: CallStateManager.STATE_IDLE
+                        result.success(state)
+                    }
+                    "setAutoRecord" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        val gain = (call.argument<Double>("gain") ?: 1.8).toFloat()
+                        isAutoRecordEnabled = enabled
+                        autoRecordGain = gain
+                        result.success(true)
+                    }
+                    "listRecordings" -> {
+                        val dir = File(applicationContext.filesDir, "call_recordings")
+                        val list = mutableListOf<Map<String, Any>>()
+                        if (dir.exists()) {
+                            dir.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() }?.forEach { f ->
+                                list.add(mapOf(
+                                    "path" to f.absolutePath,
+                                    "name" to f.name,
+                                    "sizeBytes" to f.length(),
+                                    "lastModified" to f.lastModified()
+                                ))
+                            }
+                        }
+                        result.success(list)
+                    }
+                    "deleteRecording" -> {
+                        val path = call.argument<String>("path")
+                        if (path != null) {
+                            val file = File(path)
+                            result.success(file.delete())
+                        } else {
+                            result.success(false)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+
+        // Initialize CallStateManager for cellular call tracking
+        if (callStateManager == null) {
+            callStateManager = CallStateManager(applicationContext).apply {
+                onCallStateChanged = { state, number ->
+                    runOnUiThread {
+                        callRecorderChannel?.invokeMethod("onCallStateChanged", mapOf(
+                            "state" to state,
+                            "number" to (number ?: "")
+                        ))
+
+                        // Auto-record cellular calls if enabled
+                        if (isAutoRecordEnabled) {
+                            if (state == CallStateManager.STATE_OFFHOOK && !CallRecorderService.isRunning) {
+                                val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
+                                    action = CallRecorderService.ACTION_START
+                                    putExtra(CallRecorderService.EXTRA_GAIN, autoRecordGain)
+                                }
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    startForegroundService(intent)
+                                } else {
+                                    startService(intent)
+                                }
+                            } else if (state == CallStateManager.STATE_IDLE && CallRecorderService.isRunning) {
+                                val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
+                                    action = CallRecorderService.ACTION_STOP
+                                }
+                                startService(intent)
+                            }
+                        }
+                    }
+                }
+                startListening()
+            }
+        }
+
+        CallRecorderService.statusListener = { status ->
+            runOnUiThread {
+                callRecorderChannel?.invokeMethod("onRecorderStatus", status)
+            }
+        }
     }
 
     private fun isAccessibilityServiceEnabled(context: Context): Boolean {
@@ -854,6 +995,10 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        try {
+            callStateManager?.stopListening()
+            callStateManager = null
+        } catch (_: Throwable) {}
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()

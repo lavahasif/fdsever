@@ -20,6 +20,7 @@ import 'core/theme/app_theme.dart';
 
 import 'features/apk_installer/providers/apk_installer_provider.dart';
 import 'features/auto_trail/providers/auto_trail_provider.dart';
+import 'features/call_recorder/providers/call_recorder_provider.dart';
 import 'features/focus_guard/providers/focus_guard_provider.dart';
 import 'features/dashboard/screens/dashboard_screen.dart';
 import 'features/file_transfer/providers/file_transfer_provider.dart';
@@ -116,6 +117,7 @@ void main() async {
         ),
         ChangeNotifierProvider(create: (_) => AutoTrailProvider()),
         ChangeNotifierProvider(create: (_) => FocusGuardProvider()),
+        ChangeNotifierProvider(create: (_) => CallRecorderProvider()),
       ],
       child: const FDServerApp(),
     ),

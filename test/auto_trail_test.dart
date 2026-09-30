@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fdserver/features/auto_trail/models/saved_place.dart';
 import 'package:fdserver/features/auto_trail/models/story_item.dart';
 import 'package:fdserver/features/auto_trail/models/trail_point.dart';
-import 'package:fdserver/features/auto_trail/models/visit_cluster.dart';
 import 'package:fdserver/features/auto_trail/services/daily_story_service.dart';
 import 'package:fdserver/features/auto_trail/services/trail_cluster_service.dart';
 import 'package:fdserver/features/auto_trail/services/trail_export_service.dart';

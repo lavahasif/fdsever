@@ -142,6 +142,12 @@ class ResponsiveSidebar extends StatelessWidget {
           pillarIndex: 3,
           subIndex: 3,
         ),
+        SidebarDestination(
+          title: 'Call Recorder',
+          icon: LucideIcons.phoneCall,
+          pillarIndex: 3,
+          subIndex: 4,
+        ),
       ],
     ),
   ];

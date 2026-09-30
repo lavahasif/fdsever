@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -145,7 +144,6 @@ class _MindfulFrictionScreenState extends State<MindfulFrictionScreen>
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<FocusGuardProvider>();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return PopScope(
       canPop: false, // Disallow hardware back until conscious decision
