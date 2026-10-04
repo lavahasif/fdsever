@@ -53,6 +53,22 @@ class ProxyVpnService : VpnService() {
         @Volatile var proxyOutputStream: OutputStream? = null
     )
 
+    data class UdpClientEndpoint(
+        val clientIp: String,
+        val clientPort: Int,
+        @Volatile var lastSeenMs: Long
+    )
+
+    data class DirectUdpSession(
+        val sessionKey: String,
+        val clientIp: String,
+        val clientPort: Int,
+        val dstIp: String,
+        val dstPort: Int,
+        val socket: DatagramSocket,
+        @Volatile var lastSeenMs: Long
+    )
+
     companion object {
         const val ACTION_START = "com.hasif.fdserver.START_VPN"
         const val ACTION_STOP = "com.hasif.fdserver.STOP_VPN"
@@ -119,6 +135,15 @@ class ProxyVpnService : VpnService() {
     // DNS Cache to speed up repeat queries (key: question hash, value: pair(expireTime, responsePayload))
     private val dnsCache = ConcurrentHashMap<String, Pair<Long, ByteArray>>()
     private var bypassLanEnabled = true
+
+    // UDP Relay Subsystem (VoIP & WebRTC Support for WhatsApp, IMO, Botim)
+    private val udpNatTable = ConcurrentHashMap<String, UdpClientEndpoint>()
+    private val directUdpSessions = ConcurrentHashMap<String, DirectUdpSession>()
+    @Volatile private var socks5UdpControlSocket: Socket? = null
+    @Volatile private var socks5UdpRelaySocket: DatagramSocket? = null
+    @Volatile private var socks5UdpRelayEndpoint: InetSocketAddress? = null
+    private val isSocks5UdpReady = AtomicBoolean(false)
+    private val isSocks5UdpAttempted = AtomicBoolean(false)
 
     override fun onCreate() {
         super.onCreate()
@@ -198,10 +223,45 @@ class ProxyVpnService : VpnService() {
         totalBytesOut.set(0)
         lastError = null
 
+        isSocks5UdpReady.set(false)
+        isSocks5UdpAttempted.set(false)
+        socks5UdpControlSocket = null
+        socks5UdpRelaySocket = null
+        socks5UdpRelayEndpoint = null
+        udpNatTable.clear()
+        directUdpSessions.clear()
+
         logDiag("=== VPN START REQUESTED ===")
         logDiag("Target: $host:$port ($protocol) | BypassLAN: $bypassLan")
 
         workerExecutor = Executors.newCachedThreadPool()
+
+        // Background maintenance: purge idle direct UDP sessions (> 30s) and NAT entries (> 60s)
+        workerExecutor?.execute {
+            while (!isStopping.get()) {
+                try {
+                    Thread.sleep(15000)
+                    val now = System.currentTimeMillis()
+                    val it = directUdpSessions.entries.iterator()
+                    while (it.hasNext()) {
+                        val entry = it.next()
+                        if (now - entry.value.lastSeenMs > 30000L) {
+                            try { entry.value.socket.close() } catch (_: Exception) {}
+                            it.remove()
+                        }
+                    }
+                    val natIt = udpNatTable.entries.iterator()
+                    while (natIt.hasNext()) {
+                        val entry = natIt.next()
+                        if (now - entry.value.lastSeenMs > 60000L) {
+                            natIt.remove()
+                        }
+                    }
+                } catch (_: InterruptedException) {
+                    break
+                } catch (_: Exception) {}
+            }
+        }
 
         workerExecutor?.execute {
             try {
@@ -351,9 +411,14 @@ class ProxyVpnService : VpnService() {
                 }
                 return
             } else {
-                // Reject non-DNS UDP (e.g. QUIC port 443) with ICMP Port Unreachable immediately
-                // so Chrome and Android apps fail-fast and switch to TCP immediately without a 10s stall!
-                sendIcmpPortUnreachable(packet, length)
+                // Forward UDP packet (VoIP, WebRTC, STUN, TURN, RTP, etc.) to the UDP Relay engine
+                val payloadLen = length - (headerLen + 8)
+                if (payloadLen > 0) {
+                    val udpPayload = packet.copyOfRange(headerLen + 8, length)
+                    workerExecutor?.execute {
+                        handleUdpPacket(srcIp, srcPort, dstIp, dstPort, udpPayload)
+                    }
+                }
                 return
             }
         }
@@ -1251,6 +1316,341 @@ class ProxyVpnService : VpnService() {
         }
     }
 
+    /**
+     * UDP Relay Engine: Routes VoIP media, STUN/TURN, WebRTC, and general UDP datagrams.
+     * Uses SOCKS5 UDP ASSOCIATE when available, and automatically falls back to Direct
+     * Protected UDP Relay for HTTP proxies or when SOCKS5 UDP is not supported.
+     */
+    private fun handleUdpPacket(
+        srcIp: String,
+        srcPort: Int,
+        dstIp: String,
+        dstPort: Int,
+        payload: ByteArray
+    ) {
+        // If protocol is SOCKS5, attempt SOCKS5 UDP ASSOCIATE first
+        if (targetProtocol.equals("SOCKS5", ignoreCase = true)) {
+            if (!isSocks5UdpAttempted.get()) {
+                synchronized(isSocks5UdpAttempted) {
+                    if (!isSocks5UdpAttempted.get()) {
+                        isSocks5UdpAttempted.set(true)
+                        initSocks5UdpAssociate()
+                    }
+                }
+            }
+
+            if (isSocks5UdpReady.get()) {
+                val sent = sendSocks5UdpPacket(srcIp, srcPort, dstIp, dstPort, payload)
+                if (sent) return
+            }
+        }
+
+        // Direct Protected UDP Relay fallback (works for HTTP proxy or when SOCKS5 UDP is unavailable)
+        sendDirectUdpPacket(srcIp, srcPort, dstIp, dstPort, payload)
+    }
+
+    private fun initSocks5UdpAssociate(): Boolean {
+        if (!targetProtocol.equals("SOCKS5", ignoreCase = true)) return false
+        try {
+            logDiag("[SOCKS5-UDP] Requesting UDP ASSOCIATE from $targetHost:$targetPort...")
+            val ctrlSock = Socket()
+            ctrlSock.bind(null)
+            ctrlSock.soTimeout = 8000
+            val prot = protect(ctrlSock)
+            logDiag("[SOCKS5-UDP] protect(ctrlSock): $prot")
+            ctrlSock.connect(InetSocketAddress(targetHost, targetPort), 4000)
+            ctrlSock.tcpNoDelay = true
+
+            val outStream = ctrlSock.getOutputStream()
+            val inStream = ctrlSock.getInputStream()
+
+            // Greeting: version 5, 1 auth method (0x00 No Auth)
+            outStream.write(byteArrayOf(0x05, 0x01, 0x00))
+            outStream.flush()
+
+            val greetingResp = ByteArray(2)
+            readExact(inStream, greetingResp, 0, 2)
+            if (greetingResp[0] != 0x05.toByte() || greetingResp[1] != 0x00.toByte()) {
+                logDiag("[SOCKS5-UDP] Greeting failed: ${greetingResp[0]}, ${greetingResp[1]}")
+                ctrlSock.close()
+                return false
+            }
+
+            // UDP ASSOCIATE request: CMD=0x03, RSV=0, ATYP=0x01, 0.0.0.0:0
+            outStream.write(byteArrayOf(0x05, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00))
+            outStream.flush()
+
+            val respHeader = ByteArray(4)
+            readExact(inStream, respHeader, 0, 4)
+            val rep = respHeader[1].toInt() and 0xFF
+            val atyp = respHeader[3].toInt() and 0xFF
+
+            if (rep != 0x00) {
+                logDiag("[SOCKS5-UDP] Proxy rejected UDP ASSOCIATE with code: $rep")
+                ctrlSock.close()
+                return false
+            }
+
+            val relayIp: String
+            val relayPort: Int
+            when (atyp) {
+                0x01 -> { // IPv4
+                    val addrPort = ByteArray(6)
+                    readExact(inStream, addrPort, 0, 6)
+                    val ip = "${addrPort[0].toInt() and 0xFF}.${addrPort[1].toInt() and 0xFF}.${addrPort[2].toInt() and 0xFF}.${addrPort[3].toInt() and 0xFF}"
+                    relayIp = if (ip == "0.0.0.0") targetHost else ip
+                    relayPort = ((addrPort[4].toInt() and 0xFF) shl 8) or (addrPort[5].toInt() and 0xFF)
+                }
+                0x03 -> { // Domain
+                    val lenBuf = ByteArray(1)
+                    readExact(inStream, lenBuf, 0, 1)
+                    val domainLen = lenBuf[0].toInt() and 0xFF
+                    val domainPort = ByteArray(domainLen + 2)
+                    readExact(inStream, domainPort, 0, domainPort.size)
+                    val domain = String(domainPort, 0, domainLen, Charsets.US_ASCII)
+                    relayIp = domain
+                    relayPort = ((domainPort[domainLen].toInt() and 0xFF) shl 8) or (domainPort[domainLen + 1].toInt() and 0xFF)
+                }
+                else -> {
+                    logDiag("[SOCKS5-UDP] Unsupported ATYP in reply: $atyp")
+                    ctrlSock.close()
+                    return false
+                }
+            }
+
+            logDiag("[SOCKS5-UDP] UDP ASSOCIATE succeeded! Proxy Relay Endpoint: $relayIp:$relayPort")
+
+            val relaySock = DatagramSocket()
+            protect(relaySock)
+
+            socks5UdpControlSocket = ctrlSock
+            socks5UdpRelaySocket = relaySock
+            socks5UdpRelayEndpoint = InetSocketAddress(relayIp, relayPort)
+            isSocks5UdpReady.set(true)
+
+            // Start response listener on the relay datagram socket
+            workerExecutor?.execute {
+                listenSocks5UdpResponses(relaySock)
+            }
+
+            // Monitor control socket liveness
+            workerExecutor?.execute {
+                monitorSocks5UdpControlSocket(ctrlSock)
+            }
+
+            return true
+        } catch (e: Exception) {
+            logDiag("[SOCKS5-UDP] Failed to establish UDP ASSOCIATE: ${e.message}")
+            try { socks5UdpControlSocket?.close() } catch (_: Exception) {}
+            return false
+        }
+    }
+
+    private fun listenSocks5UdpResponses(relaySock: DatagramSocket) {
+        val recvBuf = ByteArray(65535)
+        val packet = DatagramPacket(recvBuf, recvBuf.size)
+        logDiag("[SOCKS5-UDP] Response listener loop started.")
+
+        while (!isStopping.get() && isSocks5UdpReady.get() && !relaySock.isClosed) {
+            try {
+                packet.length = recvBuf.size
+                relaySock.receive(packet)
+                val len = packet.length
+                if (len < 10) continue
+
+                val atyp = recvBuf[3].toInt() and 0xFF
+                var dataOffset = 10
+                var remoteIp = ""
+                var remotePort = 0
+
+                if (atyp == 0x01) { // IPv4
+                    remoteIp = "${recvBuf[4].toInt() and 0xFF}.${recvBuf[5].toInt() and 0xFF}.${recvBuf[6].toInt() and 0xFF}.${recvBuf[7].toInt() and 0xFF}"
+                    remotePort = ((recvBuf[8].toInt() and 0xFF) shl 8) or (recvBuf[9].toInt() and 0xFF)
+                    dataOffset = 10
+                } else if (atyp == 0x03) { // Domain
+                    val domainLen = recvBuf[4].toInt() and 0xFF
+                    remoteIp = String(recvBuf, 5, domainLen, Charsets.US_ASCII)
+                    remotePort = ((recvBuf[5 + domainLen].toInt() and 0xFF) shl 8) or (recvBuf[6 + domainLen].toInt() and 0xFF)
+                    dataOffset = 7 + domainLen
+                } else {
+                    continue
+                }
+
+                val payloadLen = len - dataOffset
+                if (payloadLen <= 0) continue
+
+                val payload = recvBuf.copyOfRange(dataOffset, len)
+                totalBytesIn.addAndGet(payloadLen.toLong())
+
+                val natKey = "$remoteIp:$remotePort"
+                val client = udpNatTable[natKey]
+                if (client != null) {
+                    client.lastSeenMs = System.currentTimeMillis()
+                    sendUdpPacket(
+                        srcIp = remoteIp,
+                        srcPort = remotePort,
+                        dstIp = client.clientIp,
+                        dstPort = client.clientPort,
+                        payload = payload
+                    )
+                } else {
+                    val fallbackClient = udpNatTable.values.maxByOrNull { it.lastSeenMs }
+                    if (fallbackClient != null && (System.currentTimeMillis() - fallbackClient.lastSeenMs < 10000)) {
+                        sendUdpPacket(
+                            srcIp = remoteIp,
+                            srcPort = remotePort,
+                            dstIp = fallbackClient.clientIp,
+                            dstPort = fallbackClient.clientPort,
+                            payload = payload
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                if (!isStopping.get() && isSocks5UdpReady.get() && !relaySock.isClosed) {
+                    logDiag("[SOCKS5-UDP-ERR] Receive error: ${e.message}")
+                }
+                break
+            }
+        }
+        logDiag("[SOCKS5-UDP] Response listener loop exited.")
+    }
+
+    private fun monitorSocks5UdpControlSocket(ctrlSock: Socket) {
+        try {
+            val inStream = ctrlSock.getInputStream()
+            val buf = ByteArray(128)
+            while (!isStopping.get() && isSocks5UdpReady.get()) {
+                val r = inStream.read(buf)
+                if (r == -1) {
+                    logDiag("[SOCKS5-UDP] Control socket closed by proxy server.")
+                    break
+                }
+            }
+        } catch (_: Exception) {}
+        isSocks5UdpReady.set(false)
+        try { socks5UdpRelaySocket?.close() } catch (_: Exception) {}
+        try { ctrlSock.close() } catch (_: Exception) {}
+    }
+
+    private fun sendSocks5UdpPacket(
+        clientIp: String,
+        clientPort: Int,
+        dstIp: String,
+        dstPort: Int,
+        payload: ByteArray
+    ): Boolean {
+        val relaySock = socks5UdpRelaySocket ?: return false
+        val relayEndpoint = socks5UdpRelayEndpoint ?: return false
+        if (!isSocks5UdpReady.get() || relaySock.isClosed) return false
+
+        try {
+            val natKey = "$dstIp:$dstPort"
+            udpNatTable[natKey] = UdpClientEndpoint(clientIp, clientPort, System.currentTimeMillis())
+
+            val dstParts = dstIp.split(".")
+            if (dstParts.size != 4) return false
+
+            val packetBytes = ByteArray(10 + payload.size)
+            packetBytes[0] = 0x00
+            packetBytes[1] = 0x00
+            packetBytes[2] = 0x00 // FRAG = 0
+            packetBytes[3] = 0x01 // ATYP = IPv4
+            packetBytes[4] = dstParts[0].toInt().toByte()
+            packetBytes[5] = dstParts[1].toInt().toByte()
+            packetBytes[6] = dstParts[2].toInt().toByte()
+            packetBytes[7] = dstParts[3].toInt().toByte()
+            packetBytes[8] = ((dstPort shr 8) and 0xFF).toByte()
+            packetBytes[9] = (dstPort and 0xFF).toByte()
+            System.arraycopy(payload, 0, packetBytes, 10, payload.size)
+
+            val dgram = DatagramPacket(packetBytes, packetBytes.size, relayEndpoint)
+            relaySock.send(dgram)
+            totalBytesOut.addAndGet(payload.size.toLong())
+            return true
+        } catch (e: Exception) {
+            logDiag("[SOCKS5-UDP-ERR] Failed to send UDP to $dstIp:$dstPort: ${e.message}")
+            return false
+        }
+    }
+
+    private fun sendDirectUdpPacket(
+        clientIp: String,
+        clientPort: Int,
+        dstIp: String,
+        dstPort: Int,
+        payload: ByteArray
+    ) {
+        val sessionKey = "$clientIp:$clientPort->$dstIp:$dstPort"
+        var session = directUdpSessions[sessionKey]
+
+        if (session == null || session.socket.isClosed) {
+            try {
+                val dgramSock = DatagramSocket()
+                val prot = protect(dgramSock)
+                logDiag("[UDP-DIRECT-NEW] New UDP session $sessionKey (protect=$prot)")
+                dgramSock.soTimeout = 30000
+
+                session = DirectUdpSession(
+                    sessionKey = sessionKey,
+                    clientIp = clientIp,
+                    clientPort = clientPort,
+                    dstIp = dstIp,
+                    dstPort = dstPort,
+                    socket = dgramSock,
+                    lastSeenMs = System.currentTimeMillis()
+                )
+                directUdpSessions[sessionKey] = session
+
+                workerExecutor?.execute {
+                    listenDirectUdpResponse(session)
+                }
+            } catch (e: Exception) {
+                logDiag("[UDP-DIRECT-ERR] Cannot open direct UDP socket: ${e.message}")
+                return
+            }
+        }
+
+        try {
+            session.lastSeenMs = System.currentTimeMillis()
+            val dgram = DatagramPacket(payload, payload.size, InetAddress.getByName(dstIp), dstPort)
+            session.socket.send(dgram)
+            totalBytesOut.addAndGet(payload.size.toLong())
+        } catch (e: Exception) {
+            logDiag("[UDP-DIRECT-ERR] Send failed for $sessionKey: ${e.message}")
+        }
+    }
+
+    private fun listenDirectUdpResponse(session: DirectUdpSession) {
+        val buf = ByteArray(65535)
+        val packet = DatagramPacket(buf, buf.size)
+
+        while (!isStopping.get() && !session.socket.isClosed) {
+            try {
+                packet.length = buf.size
+                session.socket.receive(packet)
+                val len = packet.length
+                if (len <= 0) continue
+
+                totalBytesIn.addAndGet(len.toLong())
+                session.lastSeenMs = System.currentTimeMillis()
+
+                val data = buf.copyOfRange(0, len)
+                sendUdpPacket(
+                    srcIp = session.dstIp,
+                    srcPort = session.dstPort,
+                    dstIp = session.clientIp,
+                    dstPort = session.clientPort,
+                    payload = data
+                )
+            } catch (_: Exception) {
+                break
+            }
+        }
+
+        try { session.socket.close() } catch (_: Exception) {}
+        directUdpSessions.remove(session.sessionKey)
+    }
+
     private fun computeChecksum(buf: ByteArray, offset: Int, length: Int): Int {
         var sum = 0
         var i = offset
@@ -1399,6 +1799,21 @@ class ProxyVpnService : VpnService() {
         }
         activeSessions.clear()
         dnsCache.clear()
+
+        // Clean up UDP Relay subsystem
+        isSocks5UdpReady.set(false)
+        isSocks5UdpAttempted.set(false)
+        try { socks5UdpControlSocket?.close() } catch (_: Exception) {}
+        try { socks5UdpRelaySocket?.close() } catch (_: Exception) {}
+        socks5UdpControlSocket = null
+        socks5UdpRelaySocket = null
+        socks5UdpRelayEndpoint = null
+        udpNatTable.clear()
+
+        directUdpSessions.forEach { (_, sess) ->
+            try { sess.socket.close() } catch (_: Exception) {}
+        }
+        directUdpSessions.clear()
 
         try {
             vpnInterface?.close()
