@@ -25,6 +25,9 @@ import com.hasif.fdserver.fdserver.call_recorder.CallStateManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.hasif.fdserver.fdserver.audit.AuditTrailDb
+import com.hasif.fdserver.fdserver.focus_guard.FocusSensorMonitor
+import com.hasif.fdserver.fdserver.focus_guard.GeofenceFocusManager
 import org.json.JSONObject
 import java.io.File
 
@@ -37,6 +40,7 @@ class MainActivity : FlutterActivity() {
     private val FOCUS_GUARD_CHANNEL = "fdserver/focus_guard"
     private val NATIVE_MONITOR_CHANNEL = "fdserver/native_monitor"
     private val CALL_RECORDER_CHANNEL = "fdserver/call_recorder"
+    private val AUDIT_TRAIL_CHANNEL = "fdserver/audit_trail"
     private val CALL_RECORDER_PERM_REQUEST_CODE = 5001
     private var callRecorderPermissionResult: MethodChannel.Result? = null
     private var callStateManager: CallStateManager? = null
@@ -1186,6 +1190,146 @@ class MainActivity : FlutterActivity() {
         CallAudioPlayer.onPlaybackStatus = { statusMap ->
             runOnUiThread {
                 callRecorderChannel?.invokeMethod("onAudioPlaybackStateChanged", statusMap)
+            }
+        }
+
+        // ── Tamper-Evident Blackbox & Geospatial Audit Trail Channel ─────────
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, AUDIT_TRAIL_CHANNEL).setMethodCallHandler { call, result ->
+            val auditDb = AuditTrailDb.getInstance(applicationContext)
+            val sensorMonitor = FocusSensorMonitor.getInstance(applicationContext)
+            val geofenceMgr = GeofenceFocusManager.getInstance(applicationContext)
+
+            when (call.method) {
+                "getAuditLogs" -> {
+                    try {
+                        val limit = call.argument<Int>("limit") ?: 100
+                        val offset = call.argument<Int>("offset") ?: 0
+                        val category = call.argument<String>("category")
+                        val events = auditDb.queryEvents(limit, offset, category)
+                        result.success(events)
+                    } catch (e: Exception) {
+                        result.error("AUDIT_QUERY_ERROR", e.message, null)
+                    }
+                }
+                "verifyAuditIntegrity" -> {
+                    try {
+                        val check = auditDb.verifyIntegrity()
+                        result.success(mapOf(
+                            "isValid" to check.first,
+                            "brokenAtId" to check.second
+                        ))
+                    } catch (e: Exception) {
+                        result.error("AUDIT_VERIFY_ERROR", e.message, null)
+                    }
+                }
+                "getDistractionCoordinates" -> {
+                    try {
+                        val coords = auditDb.getDistractionCoordinates()
+                        result.success(coords)
+                    } catch (e: Exception) {
+                        result.error("DISTRACTION_COORDS_ERROR", e.message, null)
+                    }
+                }
+                "exportAuditCsv" -> {
+                    try {
+                        val csv = auditDb.exportCsv()
+                        result.success(csv)
+                    } catch (e: Exception) {
+                        result.error("EXPORT_CSV_ERROR", e.message, null)
+                    }
+                }
+                "triggerEmergencyBypass" -> {
+                    try {
+                        val reason = call.argument<String>("reason") ?: "User Emergency Unlock"
+                        val lat = call.argument<Double>("latitude") ?: 0.0
+                        val lng = call.argument<Double>("longitude") ?: 0.0
+                        val untilTs = sensorMonitor.triggerEmergencyBypass(reason, lat, lng)
+                        result.success(untilTs)
+                    } catch (e: Exception) {
+                        result.error("EMERGENCY_BYPASS_ERROR", e.message, null)
+                    }
+                }
+                "isEmergencyBypassActive" -> {
+                    result.success(sensorMonitor.isEmergencyBypassActive())
+                }
+                "getEmergencyBypassRemainingSeconds" -> {
+                    result.success(sensorMonitor.getEmergencyBypassRemainingSeconds())
+                }
+                "getKineticStepStatus" -> {
+                    val banked = sensorMonitor.getBankedSteps()
+                    val earned = sensorMonitor.getEarnedKineticMinutes()
+                    val used = sensorMonitor.getUsedKineticMinutes()
+                    val remaining = (earned - used).coerceAtLeast(0)
+                    result.success(mapOf(
+                        "bankedSteps" to banked,
+                        "earnedMinutes" to earned,
+                        "usedMinutes" to used,
+                        "remainingMinutes" to remaining
+                    ))
+                }
+                "consumeKineticMinutes" -> {
+                    val mins = call.argument<Int>("minutes") ?: 0
+                    val success = sensorMonitor.consumeKineticMinutes(mins)
+                    result.success(success)
+                }
+                "getGeofenceZones" -> {
+                    result.success(geofenceMgr.getZonesJson())
+                }
+                "setGeofenceZones" -> {
+                    val zonesJson = call.argument<String>("zonesJson") ?: "[]"
+                    geofenceMgr.saveZones(zonesJson)
+                    result.success(true)
+                }
+                "getWifiShieldSsids" -> {
+                    result.success(geofenceMgr.getWifiSsids())
+                }
+                "setWifiShieldSsids" -> {
+                    val ssids = call.argument<List<String>>("ssids") ?: emptyList()
+                    geofenceMgr.saveWifiSsids(ssids.toSet())
+                    result.success(true)
+                }
+                "evaluateLocation" -> {
+                    val lat = call.argument<Double>("latitude") ?: 0.0
+                    val lng = call.argument<Double>("longitude") ?: 0.0
+                    val inZone = geofenceMgr.evaluateLocation(lat, lng)
+                    result.success(mapOf(
+                        "inZone" to inZone,
+                        "zoneName" to (geofenceMgr.currentActiveZoneName ?: "")
+                    ))
+                }
+                "getDrivingStatus" -> {
+                    result.success(mapOf(
+                        "isDriving" to sensorMonitor.isDrivingCommuteShieldActive(),
+                        "speedKmh" to sensorMonitor.getCurrentSpeedKmh()
+                    ))
+                }
+                "getSleepSanctuaryStatus" -> {
+                    result.success(mapOf(
+                        "isSanctuaryActive" to sensorMonitor.isSleepSanctuaryTime()
+                    ))
+                }
+                "getBatteryThrottleStatus" -> {
+                    val isAway = call.argument<Boolean>("isAwayFromHome") ?: false
+                    result.success(mapOf(
+                        "isLowBatteryAway" to sensorMonitor.isLowBatteryAwayFromHome(isAway),
+                        "batteryLevel" to sensorMonitor.getBatteryLevel()
+                    ))
+                }
+                "recordAuditLog" -> {
+                    try {
+                        val eventType = call.argument<String>("eventType") ?: "MANUAL_LOG"
+                        val pkg = call.argument<String>("packageName")
+                        val cat = call.argument<String>("category") ?: "Audit & Geospatial"
+                        val payload = call.argument<String>("payload") ?: ""
+                        val lat = call.argument<Double>("latitude") ?: 0.0
+                        val lng = call.argument<Double>("longitude") ?: 0.0
+                        val logged = auditDb.logEvent(eventType, pkg, cat, payload, lat, lng)
+                        result.success(logged)
+                    } catch (e: Exception) {
+                        result.error("AUDIT_LOG_ERROR", e.message, null)
+                    }
+                }
+                else -> result.notImplemented()
             }
         }
     }

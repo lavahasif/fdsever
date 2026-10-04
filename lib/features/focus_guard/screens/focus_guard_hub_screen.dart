@@ -7,6 +7,8 @@ import '../providers/focus_guard_provider.dart';
 import '../services/focus_guard_bridge.dart';
 import '../widgets/focus_analytics_view.dart';
 import 'app_blacklist_screen.dart';
+import 'audit_timeline_screen.dart';
+import 'distraction_heatmap_screen.dart';
 import 'motivation_reader_screen.dart';
 import 'prayer_intervention_screen.dart';
 import 'reality_check_screen.dart';
@@ -1269,6 +1271,40 @@ class _FocusGuardHubScreenState extends State<FocusGuardHubScreen> {
                   blockReason: 'Manual Test Run',
                 ),
               ),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFF10B981)),
+          ),
+          tileColor: const Color(0xFF064E3B).withValues(alpha: 0.25),
+          leading: const Icon(LucideIcons.fileCheck2, color: Color(0xFF10B981)),
+          title: const Text('Blackbox Audit Trail & Distress Unlock', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          subtitle: const Text('SHA-256 tamper-evident logs, 5m emergency bypass & CSV export', style: TextStyle(color: Color(0xFFA7F3D0), fontSize: 11)),
+          trailing: const Icon(LucideIcons.chevronRight, color: Color(0xFF10B981)),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AuditTimelineScreen()),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        ListTile(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: Color(0xFF06B6D4)),
+          ),
+          tileColor: const Color(0xFF083344).withValues(alpha: 0.25),
+          leading: const Icon(LucideIcons.mapPin, color: Color(0xFF06B6D4)),
+          title: const Text('Geospatial Heatmap & Kinetic Guard', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          subtitle: const Text('Walk-to-unlock steps banking, driving speed shield & focus geofences', style: TextStyle(color: Color(0xFFA5F3FC), fontSize: 11)),
+          trailing: const Icon(LucideIcons.chevronRight, color: Color(0xFF06B6D4)),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DistractionHeatmapScreen()),
             );
           },
         ),

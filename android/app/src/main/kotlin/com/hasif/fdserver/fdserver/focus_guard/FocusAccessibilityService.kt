@@ -27,6 +27,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hasif.fdserver.fdserver.MainActivity
+import com.hasif.fdserver.fdserver.audit.AuditTrailDb
 
 class FocusAccessibilityService : AccessibilityService() {
 
@@ -319,6 +320,11 @@ class FocusAccessibilityService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
 
+        // Feature #68: Emergency Distress Bypass check
+        if (FocusSensorMonitor.getInstance(this).isEmergencyBypassActive()) {
+            return
+        }
+
         // Option 2: Call Recorder Accessibility Hook
         if (packageName.contains("incallui") || packageName.contains("dialer") ||
             packageName == "im.thebot.messenger" || packageName == "com.whatsapp" || packageName == "com.imo.android.imoim") {
@@ -376,6 +382,12 @@ class FocusAccessibilityService : AccessibilityService() {
             }
             activeForegroundPkg = packageName
             activePkgStartTime = nowRealtime
+
+            // Feature #67: Check attention fragmentation (rapid app switching)
+            if (isStrictActive && FocusSensorMonitor.getInstance(this).recordAppHopAndCheckFragmentation(packageName)) {
+                triggerIntervention(packageName, "attention_fragmentation")
+                return
+            }
         } else if (activeForegroundPkg == null) {
             activeForegroundPkg = packageName
             activePkgStartTime = nowRealtime
@@ -750,6 +762,19 @@ class FocusAccessibilityService : AccessibilityService() {
 
         incrementTemptationsCount(this)
         Log.w(TAG, "Intervention triggered for $packageName due to $reason")
+
+        // Feature #63: Immutable tamper-evident audit logging
+        try {
+            val loc = GeofenceFocusManager.getInstance(this).getLastKnownLocation()
+            AuditTrailDb.getInstance(this).logEvent(
+                eventType = "TEMPTATION_BLOCKED",
+                packageName = packageName,
+                category = "Audit & Geospatial",
+                payload = "Blocked $packageName due to $reason",
+                latitude = loc?.first ?: 0.0,
+                longitude = loc?.second ?: 0.0
+            )
+        } catch (_: Throwable) {}
 
         // 1. Drop blocked app to home screen
         performGlobalAction(GLOBAL_ACTION_HOME)

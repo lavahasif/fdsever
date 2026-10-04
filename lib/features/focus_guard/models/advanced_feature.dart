@@ -541,6 +541,89 @@ const List<AdvancedFeature> allAdvancedFeatures = [
     batteryImpact: 1,
     defaultEnabled: true,
   ),
+
+  // ─── Category 9: Audit Trail & Geospatial Guard (61-70) ──────────────────
+  AdvancedFeature(
+    key: 'geofenced_focus_zones',
+    name: 'Geofenced Focus Zones',
+    description: 'Auto-arms Strict Mode upon entering designated geofences (Work, Library, Mosque, Campus).',
+    category: 'Audit & Geospatial',
+    batteryImpact: 1,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'driving_commute_shield',
+    name: 'Commute & Driving Shield',
+    description: 'Detects in-vehicle motion (>25 km/h) and locks addictive video feeds while keeping Maps accessible.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'tamper_evident_blackbox',
+    name: 'Tamper-Evident Black Box',
+    description: 'SHA-256 hash-chained cryptographic audit log of all app unlocks, bypasses, and permission events.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+    isNative: true,
+  ),
+  AdvancedFeature(
+    key: 'sleep_sanctuary_guard',
+    name: 'Sleep Sanctuary Guard',
+    description: 'Detects night-time stationary phone pickups; engages ultra-dim monochrome mode to block bedtime doomscrolling.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'walk_to_unlock_quota',
+    name: 'Walk-to-Unlock / Kinetic Quota',
+    description: 'Ties screen-time allowance to physical movement. Walk 1,000 steps to unlock 15 minutes of leisure apps.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: false,
+  ),
+  AdvancedFeature(
+    key: 'wifi_auto_shield',
+    name: 'Office & Campus Wi-Fi Auto-Shield',
+    description: 'Auto-activates focus restrictions when connected to designated corporate or campus Wi-Fi SSIDs.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'attention_fragmentation_auditor',
+    name: 'Attention Fragmentation Auditor',
+    description: 'Detects rapid app-hopping (jumping between 5+ apps in 60s) and triggers a 10s Mindful Breathing Pause.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'emergency_distress_bypass',
+    name: 'Emergency Distress Bypass with Audit',
+    description: '5-minute emergency unlock that logs tamper-evident GPS coordinates and timestamp to the audit trail.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'battery_travel_throttle',
+    name: 'Battery-Aware Travel Throttle',
+    description: 'Freezes background resource hogs when battery drops below 30% while traveling away from home.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
+  AdvancedFeature(
+    key: 'distraction_geospatial_heatmap',
+    name: 'Geospatial Distraction Heatmap',
+    description: 'Visual productivity map plotting Auto Trail location coordinates against Focus Guard temptation blocks.',
+    category: 'Audit & Geospatial',
+    batteryImpact: 0,
+    defaultEnabled: true,
+  ),
 ];
 
 /// Get features grouped by category
@@ -561,6 +644,7 @@ const Map<String, String> categoryIcons = {
   'System Intelligence': '🔧',
   'Privacy & Security': '🔒',
   'Developer & Power': '🔬',
+  'Audit & Geospatial': '🗺️',
 };
 
 /// Category descriptions
@@ -572,4 +656,5 @@ const Map<String, String> categoryDescriptions = {
   'System Intelligence': 'Self-monitoring CPU, memory, thermal, and storage health',
   'Privacy & Security': 'App lock, tamper detection, and encrypted settings',
   'Developer & Power': 'Advanced debugging, profiling, and feature management tools',
+  'Audit & Geospatial': 'Cryptographic audit trail, geofenced focus, kinetic quotas, and heatmaps',
 };
