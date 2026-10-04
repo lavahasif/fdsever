@@ -724,6 +724,49 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
                       spacing: 6,
                       runSpacing: 4,
                       children: [
+                        if (item.directionLabel.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: item.isIncoming
+                                  ? const Color(0xFF06B6D4).withValues(alpha: 0.15)
+                                  : item.isOutgoing
+                                      ? const Color(0xFF8B5CF6).withValues(alpha: 0.15)
+                                      : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  item.isIncoming
+                                      ? LucideIcons.phoneIncoming
+                                      : item.isOutgoing
+                                          ? LucideIcons.phoneOutgoing
+                                          : LucideIcons.globe,
+                                  size: 10,
+                                  color: item.isIncoming
+                                      ? const Color(0xFF06B6D4)
+                                      : item.isOutgoing
+                                          ? const Color(0xFF8B5CF6)
+                                          : const Color(0xFFF59E0B),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  item.directionLabel,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: item.isIncoming
+                                        ? const Color(0xFF06B6D4)
+                                        : item.isOutgoing
+                                            ? const Color(0xFF8B5CF6)
+                                            : const Color(0xFFF59E0B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         if (item.phoneNumber.isNotEmpty && item.phoneNumber != 'Unknown')
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),

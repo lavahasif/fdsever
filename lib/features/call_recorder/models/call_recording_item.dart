@@ -7,6 +7,7 @@ class CallRecordingItem {
   final DateTime lastModified;
   final String phoneNumber;
   final String contactName;
+  final String callDirection;
   final String notes;
   final double durationSeconds;
 
@@ -17,6 +18,7 @@ class CallRecordingItem {
     required this.lastModified,
     this.phoneNumber = '',
     this.contactName = '',
+    this.callDirection = 'unknown',
     this.notes = '',
     this.durationSeconds = 0.0,
   });
@@ -31,6 +33,7 @@ class CallRecordingItem {
       ),
       phoneNumber: map['phoneNumber']?.toString() ?? '',
       contactName: map['contactName']?.toString() ?? '',
+      callDirection: map['callDirection']?.toString() ?? 'unknown',
       notes: map['notes']?.toString() ?? '',
       durationSeconds: (map['durationSeconds'] as num?)?.toDouble() ?? 0.0,
     );
@@ -43,6 +46,7 @@ class CallRecordingItem {
     DateTime? lastModified,
     String? phoneNumber,
     String? contactName,
+    String? callDirection,
     String? notes,
     double? durationSeconds,
   }) {
@@ -53,6 +57,7 @@ class CallRecordingItem {
       lastModified: lastModified ?? this.lastModified,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       contactName: contactName ?? this.contactName,
+      callDirection: callDirection ?? this.callDirection,
       notes: notes ?? this.notes,
       durationSeconds: durationSeconds ?? this.durationSeconds,
     );
@@ -66,6 +71,17 @@ class CallRecordingItem {
       return phoneNumber.trim();
     }
     return name;
+  }
+
+  bool get isIncoming => callDirection == 'incoming';
+  bool get isOutgoing => callDirection == 'outgoing';
+  bool get isVoIP => callDirection == 'voip' || phoneNumber == 'VoIP';
+
+  String get directionLabel {
+    if (isIncoming) return 'Incoming';
+    if (isOutgoing) return 'Outgoing';
+    if (isVoIP) return 'VoIP';
+    return '';
   }
 
   String get formattedDuration {

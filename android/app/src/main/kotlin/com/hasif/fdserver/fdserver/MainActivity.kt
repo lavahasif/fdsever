@@ -1058,6 +1058,7 @@ class MainActivity : FlutterActivity() {
                                 var contact = ""
                                 var notes = ""
                                 var durSec = 0.0
+                                var direction = "unknown"
 
                                 val metaFile = File("${f.absolutePath}.meta")
                                 if (metaFile.exists()) {
@@ -1065,6 +1066,7 @@ class MainActivity : FlutterActivity() {
                                         val json = JSONObject(metaFile.readText())
                                         phoneNum = json.optString("phoneNumber", "")
                                         contact = json.optString("contactName", "")
+                                        direction = json.optString("callDirection", "unknown")
                                         notes = json.optString("notes", "")
                                         durSec = json.optDouble("durationSeconds", 0.0)
                                     } catch (_: Exception) {}
@@ -1075,6 +1077,15 @@ class MainActivity : FlutterActivity() {
                                         phoneNum = match.groupValues[1]
                                     }
                                 }
+                                // Auto-resolve contact name if not present in metadata
+                                if (contact.isEmpty() && phoneNum.isNotEmpty() && phoneNum != "Unknown" && phoneNum != "VoIP") {
+                                    try {
+                                        val resolved = com.hasif.fdserver.fdserver.call_recorder.ContactResolver.resolveContactName(applicationContext, phoneNum)
+                                        if (!resolved.isNullOrBlank()) {
+                                            contact = resolved
+                                        }
+                                    } catch (_: Exception) {}
+                                }
 
                                 list.add(mapOf(
                                     "path" to f.absolutePath,
@@ -1083,6 +1094,7 @@ class MainActivity : FlutterActivity() {
                                     "lastModified" to f.lastModified(),
                                     "phoneNumber" to phoneNum,
                                     "contactName" to contact,
+                                    "callDirection" to direction,
                                     "notes" to notes,
                                     "durationSeconds" to durSec
                                 ))
@@ -1111,9 +1123,12 @@ class MainActivity : FlutterActivity() {
 
         // Initialize CallStateManager for cellular call tracking
         if (callStateManager == null) {
+            var lastCellularState = CallStateManager.STATE_IDLE
             callStateManager = CallStateManager(applicationContext).apply {
                 onCallStateChanged = { state, number ->
                     runOnUiThread {
+                        val isOutgoing = (state == CallStateManager.STATE_OFFHOOK && lastCellularState != CallStateManager.STATE_RINGING)
+                        lastCellularState = state
                         callRecorderChannel?.invokeMethod("onCallStateChanged", mapOf(
                             "state" to state,
                             "number" to (number ?: "")
@@ -1126,6 +1141,7 @@ class MainActivity : FlutterActivity() {
                                     action = CallRecorderService.ACTION_START
                                     putExtra(CallRecorderService.EXTRA_GAIN, autoRecordGain)
                                     putExtra(CallRecorderService.EXTRA_PHONE_NUMBER, number ?: "Unknown")
+                                    putExtra("extra_is_outgoing", isOutgoing)
                                 }
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                     startForegroundService(intent)

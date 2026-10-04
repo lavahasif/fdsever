@@ -18,6 +18,7 @@ class CallBroadcastReceiver : BroadcastReceiver() {
         private const val TAG = "CallBroadcastReceiver"
         private var lastState = TelephonyManager.EXTRA_STATE_IDLE
         private var savedNumber: String? = null
+        private var isOutgoing = false
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -32,6 +33,7 @@ class CallBroadcastReceiver : BroadcastReceiver() {
             val outgoingNumber = intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER)
             if (!outgoingNumber.isNullOrEmpty()) {
                 savedNumber = outgoingNumber
+                isOutgoing = true
                 Log.i(TAG, "Outgoing call detected to: $outgoingNumber")
             }
             return
@@ -56,6 +58,7 @@ class CallBroadcastReceiver : BroadcastReceiver() {
 
         when (stateStr) {
             TelephonyManager.EXTRA_STATE_RINGING -> {
+                isOutgoing = false
                 if (!incomingNumber.isNullOrEmpty()) {
                     savedNumber = incomingNumber
                 }
@@ -65,12 +68,13 @@ class CallBroadcastReceiver : BroadcastReceiver() {
                 // Call answered or placed - start recording
                 if (!CallRecorderService.isRunning) {
                     val numberToRecord = savedNumber ?: "Unknown"
-                    Log.i(TAG, "Triggering background auto-record service for number: $numberToRecord")
+                    Log.i(TAG, "Triggering background auto-record service for number: $numberToRecord (outgoing=$isOutgoing)")
 
                     val serviceIntent = Intent(context, CallRecorderService::class.java).apply {
                         this.action = CallRecorderService.ACTION_START
                         putExtra(CallRecorderService.EXTRA_GAIN, gain)
                         putExtra(CallRecorderService.EXTRA_PHONE_NUMBER, numberToRecord)
+                        putExtra("extra_is_outgoing", isOutgoing)
                     }
 
                     try {

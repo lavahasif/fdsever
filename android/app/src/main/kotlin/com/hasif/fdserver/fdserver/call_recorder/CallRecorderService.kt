@@ -60,6 +60,12 @@ class CallRecorderService : Service() {
         @Volatile var currentPhoneNumber: String? = null
             private set
 
+        @Volatile var currentContactName: String? = null
+            private set
+
+        @Volatile var currentCallDirection: String = "unknown"
+            private set
+
         @Volatile var latestAmplitude: Int = 0
             private set
 
@@ -96,6 +102,8 @@ class CallRecorderService : Service() {
                 if (!isRunning) {
                     voipRecordingStartedByMonitor = true
                     currentPhoneNumber = VOIP_LABEL
+                    currentContactName = null
+                    currentCallDirection = "voip"
                     startRecording(generateDefaultFilePath(VOIP_LABEL, "VoIP"), voipGain)
                 }
             }
@@ -150,10 +158,18 @@ class CallRecorderService : Service() {
             ACTION_START -> {
                 val phoneNumber = intent.getStringExtra(EXTRA_PHONE_NUMBER) ?: "Unknown"
                 currentPhoneNumber = phoneNumber
-                val path = intent.getStringExtra(EXTRA_FILE_PATH) ?: generateDefaultFilePath(phoneNumber)
+                // Resolve contact name from device contacts
+                val resolvedName = ContactResolver.resolveContactName(applicationContext, phoneNumber)
+                currentContactName = resolvedName
+                // Determine call direction: outgoing calls come from NEW_OUTGOING_CALL → CallBroadcastReceiver
+                // Incoming calls come from EXTRA_STATE_RINGING. Check if it was outgoing via the broadcast.
+                val isOutgoing = intent.getBooleanExtra("extra_is_outgoing", false)
+                currentCallDirection = ContactResolver.getCallDirection(isOutgoing)
+                val displayLabel = ContactResolver.formatDisplayLabel(phoneNumber, resolvedName)
+                val path = intent.getStringExtra(EXTRA_FILE_PATH) ?: generateDefaultFilePath(phoneNumber, contactName = resolvedName)
                 val gain = intent.getFloatExtra(EXTRA_GAIN, 5.0f)
 
-                startForegroundWithNotification(path, phoneNumber)
+                startForegroundWithNotification(path, displayLabel)
                 startRecording(path, gain)
                 return START_STICKY
             }
@@ -212,19 +228,23 @@ class CallRecorderService : Service() {
         isRunning = false
         val path = currentRecordingPath
         val number = currentPhoneNumber ?: "Unknown"
+        val contact = currentContactName ?: ""
+        val direction = currentCallDirection
         currentRecordingPath = null
         currentPhoneNumber = null
+        currentContactName = null
+        currentCallDirection = "unknown"
 
         // Save companion metadata file (.meta)
         if (path != null) {
-            saveMetadata(path, number)
+            saveMetadata(path, number, contact, direction)
         }
 
         statusListener?.invoke("RECORDING_FINISHED:$path")
         Log.i(TAG, "Call recorder service stopped, metadata saved")
     }
 
-    private fun saveMetadata(filePath: String, phoneNumber: String) {
+    private fun saveMetadata(filePath: String, phoneNumber: String, contactName: String, callDirection: String) {
         try {
             val audioFile = File(filePath)
             val metaFile = File("${filePath}.meta")
@@ -234,14 +254,15 @@ class CallRecorderService : Service() {
                 put("filePath", filePath)
                 put("fileName", audioFile.name)
                 put("phoneNumber", phoneNumber)
-                put("contactName", "")
+                put("contactName", contactName)
+                put("callDirection", callDirection)
                 put("notes", "")
                 put("durationSeconds", duration)
                 put("timestamp", System.currentTimeMillis())
                 put("sizeBytes", audioFile.length())
             }
             metaFile.writeText(json.toString())
-            Log.i(TAG, "Companion metadata saved at ${metaFile.absolutePath}")
+            Log.i(TAG, "Companion metadata saved at ${metaFile.absolutePath} (contact=$contactName, direction=$callDirection)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save companion metadata: ${e.message}")
         }
@@ -255,12 +276,17 @@ class CallRecorderService : Service() {
         super.onDestroy()
     }
 
-    private fun generateDefaultFilePath(phoneNumber: String, prefix: String = "Call"): String {
+    private fun generateDefaultFilePath(phoneNumber: String, prefix: String = "Call", contactName: String? = null): String {
         val dir = File(applicationContext.filesDir, "call_recordings")
         if (!dir.exists()) dir.mkdirs()
-        val cleanNumber = phoneNumber.replace(Regex("[^0-9+]"), "").ifEmpty { "Unknown" }
+        val cleanNumber = ContactResolver.sanitizeForFilename(phoneNumber)
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return File(dir, "${prefix}_${timestamp}_${cleanNumber}.wav").absolutePath
+        // Include contact name in filename if available
+        val nameSegment = if (!contactName.isNullOrBlank()) {
+            val sanitized = contactName.replace(Regex("[^a-zA-Z0-9 ]"), "").trim().replace(" ", "_").take(20)
+            "${sanitized}_"
+        } else ""
+        return File(dir, "${prefix}_${timestamp}_${nameSegment}${cleanNumber}.wav").absolutePath
     }
 
     private fun createNotificationChannel() {
@@ -280,14 +306,13 @@ class CallRecorderService : Service() {
         }
     }
 
-    private fun buildNotification(path: String, phoneNumber: String): Notification {
-        val fileName = File(path).name
+    private fun buildNotification(path: String, displayLabel: String): Notification {
         val contentSubtext = if (path.isEmpty()) {
             "Waiting for WhatsApp / IMO / Botim / VoIP calls"
-        } else if (phoneNumber.isNotEmpty() && phoneNumber != "Unknown") {
-            "Call with: $phoneNumber (High-Gain Mode)"
+        } else if (displayLabel.isNotEmpty() && displayLabel != "Unknown") {
+            "🔴 Recording: $displayLabel"
         } else {
-            "Recording: $fileName"
+            "🔴 Recording call..."
         }
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply {

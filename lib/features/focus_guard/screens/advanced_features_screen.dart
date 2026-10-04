@@ -5,7 +5,7 @@ import '../providers/focus_guard_provider.dart';
 import '../services/native_monitor_bridge.dart';
 
 /// Hidden advanced features settings screen.
-/// Provides runtime toggles for all 50 features organized by category,
+/// Provides runtime toggles for all 60 features organized by category,
 /// with battery impact indicators and real-time native engine stats.
 class AdvancedFeaturesScreen extends StatefulWidget {
   const AdvancedFeaturesScreen({super.key});
