@@ -77,6 +77,10 @@ class AudioRecordEngine {
         private set
 
     var gainMultiplier: Float = 5.0f
+    var speechEqEnabled: Boolean = true
+    var volumeEscalationEnabled: Boolean = true
+    private var originalCallVolume: Int = -1
+
     var onAmplitudeUpdated: ((amplitude: Int) -> Unit)? = null
     var onStatusChanged: ((status: String) -> Unit)? = null
 
@@ -88,6 +92,28 @@ class AudioRecordEngine {
         }
 
         gainMultiplier = boostGain
+        CallRecorderBridge.safeSetSpeechEqEnabled(speechEqEnabled)
+
+        // Option 1: Volume Escalation for non-speaker calls
+        // Ensures earpiece conducts enough acoustic vibration through the chassis to the microphone
+        if (volumeEscalationEnabled) {
+            context?.let { ctx ->
+                try {
+                    val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                    am?.let {
+                        originalCallVolume = it.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+                        val maxVol = it.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+                        val targetVol = (maxVol * 9) / 10
+                        if (originalCallVolume < targetVol) {
+                            it.setStreamVolume(AudioManager.STREAM_VOICE_CALL, targetVol, 0)
+                            Log.i(TAG, "Option 1: In-call volume escalated to $targetVol/$maxVol for earpiece acoustic conduction (was $originalCallVolume)")
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not adjust in-call volume: ${t.message}")
+                }
+            }
+        }
 
         // Enable speakerphone so the caller's acoustic voice from the loudspeaker reaches the microphone.
         // On Android 12+ (API 31+), setCommunicationDevice MUST be used, as isSpeakerphoneOn is deprecated and ignored.
@@ -403,6 +429,13 @@ class AudioRecordEngine {
                         it.mode = originalAudioMode
                         Log.i(TAG, "Restored audio mode to: $originalAudioMode")
                     } catch (_: Throwable) {}
+                }
+                if (originalCallVolume >= 0) {
+                    try {
+                        it.setStreamVolume(AudioManager.STREAM_VOICE_CALL, originalCallVolume, 0)
+                        Log.i(TAG, "Restored in-call volume to: $originalCallVolume")
+                    } catch (_: Throwable) {}
+                    originalCallVolume = -1
                 }
             }
         } catch (t: Throwable) {

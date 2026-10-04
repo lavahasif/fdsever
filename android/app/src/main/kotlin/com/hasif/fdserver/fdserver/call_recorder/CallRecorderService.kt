@@ -69,7 +69,26 @@ class CallRecorderService : Service() {
         @Volatile var latestAmplitude: Int = 0
             private set
 
+        @Volatile var activeEngine: AudioRecordEngine? = null
+            private set
+
         var statusListener: ((status: String) -> Unit)? = null
+
+        fun updateRecordingOptions(speechEq: Boolean, volumeEscalation: Boolean, accessibilityHook: Boolean) {
+            activeEngine?.let {
+                it.speechEqEnabled = speechEq
+                it.volumeEscalationEnabled = volumeEscalation
+            }
+            CallRecorderBridge.safeSetSpeechEqEnabled(speechEq)
+            Log.i(TAG, "Recording options updated: speechEq=$speechEq, volumeEscalation=$volumeEscalation, accessibilityHook=$accessibilityHook")
+        }
+
+        fun onInCallUiVisible(context: Context, pkg: String) {
+            val prefs = context.getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE)
+            val accessibilityHook = prefs.getBoolean("accessibility_hook_enabled", true)
+            if (!accessibilityHook) return
+            Log.d(TAG, "Option 2: Active in-call UI detected ($pkg) under Accessibility Service")
+        }
     }
 
     private val recordEngine = AudioRecordEngine()
@@ -205,6 +224,12 @@ class CallRecorderService : Service() {
         if (isRunning) return
 
         currentRecordingPath = path
+        activeEngine = recordEngine
+
+        val prefs = applicationContext.getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE)
+        recordEngine.speechEqEnabled = prefs.getBoolean("speech_eq_enabled", true)
+        recordEngine.volumeEscalationEnabled = prefs.getBoolean("volume_escalation_enabled", true)
+
         recordEngine.onAmplitudeUpdated = { amp ->
             latestAmplitude = amp
         }
@@ -215,9 +240,10 @@ class CallRecorderService : Service() {
         val success = recordEngine.startCapture(path, gain, applicationContext)
         if (success) {
             isRunning = true
-            Log.i(TAG, "Call recorder service recording started at $path (number=$currentPhoneNumber)")
+            Log.i(TAG, "Call recorder service recording started at $path (number=$currentPhoneNumber, speechEq=${recordEngine.speechEqEnabled}, volEscalation=${recordEngine.volumeEscalationEnabled})")
             statusListener?.invoke("RECORDING_STARTED")
         } else {
+            activeEngine = null
             stopSelf()
         }
     }
@@ -225,6 +251,7 @@ class CallRecorderService : Service() {
     private fun stopRecording() {
         if (!isRunning) return
         recordEngine.stopCapture()
+        activeEngine = null
         isRunning = false
         val path = currentRecordingPath
         val number = currentPhoneNumber ?: "Unknown"

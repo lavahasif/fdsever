@@ -949,6 +949,22 @@ class MainActivity : FlutterActivity() {
                             result.error("VOIP_RECORD_ERROR", t.message, null)
                         }
                     }
+                    "setRecordingOptions" -> {
+                        try {
+                            val speechEq = call.argument<Boolean>("speechEq") ?: true
+                            val volumeEscalation = call.argument<Boolean>("volumeEscalation") ?: true
+                            val accessibilityHook = call.argument<Boolean>("accessibilityHook") ?: true
+                            getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE).edit()
+                                .putBoolean("speech_eq_enabled", speechEq)
+                                .putBoolean("volume_escalation_enabled", volumeEscalation)
+                                .putBoolean("accessibility_hook_enabled", accessibilityHook)
+                                .apply()
+                            CallRecorderService.updateRecordingOptions(speechEq, volumeEscalation, accessibilityHook)
+                            result.success(true)
+                        } catch (t: Throwable) {
+                            result.error("SET_OPTIONS_ERROR", t.message, null)
+                        }
+                    }
                     "isAccessibilityEnabled" -> {
                         result.success(FocusAccessibilityService.isServiceRunning() || isAccessibilityServiceEnabled(this@MainActivity))
                     }

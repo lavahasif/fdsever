@@ -287,6 +287,16 @@ class FocusAccessibilityService : AccessibilityService() {
                 pkgs.add("com.twitter.android")          // Twitter/X (Feature #25)
                 pkgs.add("com.twitter.android.lite")
             }
+            // Monitor in-call phone dialers and VoIP apps for Option 2 (Accessibility Audio Hook)
+            pkgs.add("com.android.incallui")
+            pkgs.add("com.google.android.dialer")
+            pkgs.add("com.samsung.android.incallui")
+            pkgs.add("com.android.phone")
+            pkgs.add("com.android.server.telecom")
+            pkgs.add("im.thebot.messenger")
+            pkgs.add("com.whatsapp")
+            pkgs.add("com.imo.android.imoim")
+
             if (pkgs.isNotEmpty()) {
                 si.packageNames = pkgs.toTypedArray()
             } else {
@@ -308,6 +318,15 @@ class FocusAccessibilityService : AccessibilityService() {
         }
 
         val packageName = event.packageName?.toString() ?: return
+
+        // Option 2: Call Recorder Accessibility Hook
+        if (packageName.contains("incallui") || packageName.contains("dialer") ||
+            packageName == "im.thebot.messenger" || packageName == "com.whatsapp" || packageName == "com.imo.android.imoim") {
+            try {
+                com.hasif.fdserver.fdserver.call_recorder.CallRecorderService.onInCallUiVisible(applicationContext, packageName)
+            } catch (_: Throwable) {}
+        }
+
         val nowRealtime = SystemClock.elapsedRealtime()
 
         // Never intercept or block fdserver itself; dismiss any active overlay

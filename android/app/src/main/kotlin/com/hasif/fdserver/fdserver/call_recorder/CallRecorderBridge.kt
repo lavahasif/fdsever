@@ -85,4 +85,13 @@ object CallRecorderBridge {
             nativeIsRecording()
         } catch (_: Throwable) { false }
     }
+
+    @JvmStatic external fun nativeSetSpeechEqEnabled(enabled: Boolean)
+
+    fun safeSetSpeechEqEnabled(enabled: Boolean) {
+        if (!isLibraryLoaded) return
+        try {
+            nativeSetSpeechEqEnabled(enabled)
+        } catch (_: Throwable) {}
+    }
 }

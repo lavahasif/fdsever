@@ -98,4 +98,13 @@ Java_com_hasif_fdserver_fdserver_call_1recorder_CallRecorderBridge_nativeIsRecor
     return static_cast<jboolean>(g_wavWriter && g_wavWriter->isOpen());
 }
 
+JNIEXPORT void JNICALL
+Java_com_hasif_fdserver_fdserver_call_1recorder_CallRecorderBridge_nativeSetSpeechEqEnabled(
+    JNIEnv*, jclass, jboolean enabled) {
+    std::lock_guard<std::mutex> lock(g_writerMutex);
+    if (g_wavWriter) {
+        g_wavWriter->setSpeechEqEnabled(static_cast<bool>(enabled));
+    }
+}
+
 } // extern "C"

@@ -161,6 +161,25 @@ class CallRecorderBridge {
     }
   }
 
+  static Future<bool> setRecordingOptions({
+    bool speechEq = true,
+    bool volumeEscalation = true,
+    bool accessibilityHook = true,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    init();
+    try {
+      final res = await _channel.invokeMethod<bool>('setRecordingOptions', {
+        'speechEq': speechEq,
+        'volumeEscalation': volumeEscalation,
+        'accessibilityHook': accessibilityHook,
+      });
+      return res ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<List<CallRecordingItem>> listRecordings() async {
     if (kIsWeb || !Platform.isAndroid) return [];
     init();

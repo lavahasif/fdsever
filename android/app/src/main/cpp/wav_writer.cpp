@@ -6,6 +6,32 @@
 
 namespace fdserver {
 
+void BiquadFilter::setupBandpass(float sampleRate, float centerFreq, float Q) {
+    if (sampleRate <= 0.0f) sampleRate = 16000.0f;
+    float w0 = 2.0f * 3.141592653589793f * centerFreq / sampleRate;
+    float alpha = std::sin(w0) / (2.0f * Q);
+    float a0 = 1.0f + alpha;
+    b0 = (alpha * 2.2f) / a0;
+    b1 = 0.0f;
+    b2 = (-alpha * 2.2f) / a0;
+    a1 = (-2.0f * std::cos(w0)) / a0;
+    a2 = (1.0f - alpha) / a0;
+    reset();
+}
+
+void BiquadFilter::reset() {
+    x1 = x2 = y1 = y2 = 0.0f;
+}
+
+float BiquadFilter::process(float in) {
+    float out = b0 * in + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+    x2 = x1;
+    x1 = in;
+    y2 = y1;
+    y1 = out;
+    return out;
+}
+
 WavWriter::WavWriter() = default;
 
 WavWriter::~WavWriter() {
@@ -24,6 +50,8 @@ bool WavWriter::open(const std::string& filePath, uint32_t sampleRate, uint16_t 
     m_bitsPerSample = bitsPerSample;
     m_totalSamplesWritten = 0;
     m_totalBytesWritten = 0;
+
+    m_speechFilter.setupBandpass(static_cast<float>(sampleRate), 1850.0f, 1.2f);
 
     m_file = fopen(m_filePath.c_str(), "wb");
     if (!m_file) {
@@ -82,23 +110,33 @@ bool WavWriter::writePcm(const int16_t* samples, size_t numSamples, float gainMu
     size_t bytesToWrite = numSamples * sizeof(int16_t);
 
     if (gainMultiplier > 1.01f || gainMultiplier < 0.99f) {
-        // High-potency acoustic voice booster with soft-knee limiter.
-        // Faint acoustic caller speech from the phone loudspeaker or earpiece (samples < 3000)
-        // receives full gain amplification with an extra acoustic expansion curve.
+        // High-potency acoustic voice booster with formant speech EQ and soft-knee limiter.
+        // Faint acoustic caller speech from the phone earpiece / chassis (< 4200)
+        // receives full gain amplification + telephone formant band boost (1.8 kHz).
         // Peak samples (> 30000) are softly compressed to prevent digital clipping/distortion.
         std::vector<int16_t> boosted(numSamples);
+        bool useEq = m_speechEqEnabled.load();
+
         for (size_t i = 0; i < numSamples; ++i) {
             float sample = static_cast<float>(samples[i]);
             float absSample = std::abs(sample);
             float effectiveGain = gainMultiplier;
 
-            if (absSample < 3500.0f && absSample > 15.0f) {
-                // Boost faint incoming speech from the acoustic path
-                float boostFactor = 1.0f + 1.5f * (1.0f - (absSample / 3500.0f));
+            float formant = 0.0f;
+            if (useEq) {
+                formant = m_speechFilter.process(sample);
+            }
+
+            if (absSample < 4200.0f && absSample > 15.0f) {
+                // Boost faint incoming speech from the acoustic chassis path
+                float boostFactor = 1.0f + 2.2f * (1.0f - (absSample / 4200.0f));
                 effectiveGain *= boostFactor;
             }
 
             float multiplied = sample * effectiveGain;
+            if (useEq && absSample < 4200.0f) {
+                multiplied += (formant * effectiveGain * 1.5f);
+            }
 
             // Soft-knee peak compression near full scale (prevents harsh distortion)
             if (multiplied > 30000.0f) {

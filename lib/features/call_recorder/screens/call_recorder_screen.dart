@@ -616,6 +616,99 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
             inactiveColor: const Color(0xFF27272A),
             onChanged: (val) => provider.setGainMultiplier(val),
           ),
+          const Divider(color: Color(0xFF27272A), height: 24),
+
+          // Option 1: Speech Formant EQ & Volume Escalation (Non-Speaker Mode)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Option 1: C++ Speech EQ & Vol Boost',
+                          style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'EARPIECE MODE',
+                            style: TextStyle(fontSize: 9, color: Color(0xFF60A5FA), fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Extracts telephone voice formants (1.8 kHz) + auto-sets in-call volume to 90% for clear earpiece chassis conduction without speakerphone.',
+                      style: TextStyle(fontSize: 12, color: Colors.white60),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: provider.speechEqEnabled,
+                onChanged: (val) {
+                  provider.setSpeechEqEnabled(val);
+                  provider.setVolumeEscalationEnabled(val);
+                },
+                activeThumbColor: const Color(0xFF3B82F6),
+              ),
+            ],
+          ),
+          const Divider(color: Color(0xFF27272A), height: 24),
+
+          // Option 2: Accessibility Service Recording Hook
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Option 2: Accessibility Priority Hook',
+                          style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF8B5CF6).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'ANDROID 10-15',
+                            style: TextStyle(fontSize: 9, color: Color(0xFFA78BFA), fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Elevates recording thread privileges via Focus Guard Accessibility Service to prevent AudioPolicy mute during active calls.',
+                      style: TextStyle(fontSize: 12, color: Colors.white60),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: provider.accessibilityHookEnabled,
+                onChanged: (val) => provider.setAccessibilityHookEnabled(val),
+                activeThumbColor: const Color(0xFF8B5CF6),
+              ),
+            ],
+          ),
         ],
       ),
     );

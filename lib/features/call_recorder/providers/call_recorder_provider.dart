@@ -8,10 +8,20 @@ class CallRecorderProvider extends ChangeNotifier {
   static const String _keyAutoRecord = 'call_recorder_auto_record';
   static const String _keyGain = 'call_recorder_gain';
   static const String _keyVoip = 'call_recorder_voip';
+  static const String _keySpeechEq = 'call_recorder_speech_eq';
+  static const String _keyVolumeEscalation = 'call_recorder_volume_escalation';
+  static const String _keyAccessibilityHook = 'call_recorder_accessibility_hook';
 
   bool _voipRecordEnabled = false;
   bool _voipCallActive = false;
   bool _accessibilityEnabled = true;
+
+  // Option 1: C++ Speech EQ & Volume Escalation
+  bool _speechEqEnabled = true;
+  bool _volumeEscalationEnabled = true;
+
+  // Option 2: Accessibility Service Call Recording Hook
+  bool _accessibilityHookEnabled = true;
 
   bool _isRecording = false;
   double _durationSeconds = 0.0;
@@ -51,6 +61,10 @@ class CallRecorderProvider extends ChangeNotifier {
   double get gainMultiplier => _gainMultiplier;
   String get statusMessage => _statusMessage;
   List<CallRecordingItem> get recordings => List.unmodifiable(_recordings);
+
+  bool get speechEqEnabled => _speechEqEnabled;
+  bool get volumeEscalationEnabled => _volumeEscalationEnabled;
+  bool get accessibilityHookEnabled => _accessibilityHookEnabled;
 
   bool get hasAudioPermission => _hasAudioPermission;
   bool get hasPhonePermission => _hasPhonePermission;
@@ -96,6 +110,10 @@ class CallRecorderProvider extends ChangeNotifier {
     _autoRecordEnabled = prefs.getBool(_keyAutoRecord) ?? true;
     _gainMultiplier = prefs.getDouble(_keyGain) ?? 5.0;
     _voipRecordEnabled = prefs.getBool(_keyVoip) ?? false;
+    _speechEqEnabled = prefs.getBool(_keySpeechEq) ?? true;
+    _volumeEscalationEnabled = prefs.getBool(_keyVolumeEscalation) ?? true;
+    _accessibilityHookEnabled = prefs.getBool(_keyAccessibilityHook) ?? true;
+    await syncRecordingOptions();
 
     CallRecorderBridge.onCallStateChanged = (state, number) {
       _callState = state;
@@ -233,6 +251,38 @@ class CallRecorderProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_keyGain, gain);
     await syncAutoRecordConfig();
+    notifyListeners();
+  }
+
+  Future<void> syncRecordingOptions() async {
+    await CallRecorderBridge.setRecordingOptions(
+      speechEq: _speechEqEnabled,
+      volumeEscalation: _volumeEscalationEnabled,
+      accessibilityHook: _accessibilityHookEnabled,
+    );
+  }
+
+  Future<void> setSpeechEqEnabled(bool enabled) async {
+    _speechEqEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keySpeechEq, enabled);
+    await syncRecordingOptions();
+    notifyListeners();
+  }
+
+  Future<void> setVolumeEscalationEnabled(bool enabled) async {
+    _volumeEscalationEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyVolumeEscalation, enabled);
+    await syncRecordingOptions();
+    notifyListeners();
+  }
+
+  Future<void> setAccessibilityHookEnabled(bool enabled) async {
+    _accessibilityHookEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyAccessibilityHook, enabled);
+    await syncRecordingOptions();
     notifyListeners();
   }
 
