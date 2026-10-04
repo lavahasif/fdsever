@@ -71,6 +71,9 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
             // ── Runtime Permissions Warning Banner ────────────────────────────
             _buildPermissionBanner(context, provider),
 
+            // ── Accessibility Service Banner (Prevents in-call audio silencing) ──
+            _buildAccessibilityBanner(context, provider),
+
             // ── Live Recorder Status Card ──────────────────────────────────────
             _buildLiveStatusCard(context, provider),
             const SizedBox(height: 16),
@@ -165,6 +168,64 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFF59E0B),
                 foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccessibilityBanner(BuildContext context, CallRecorderProvider provider) {
+    if (provider.accessibilityEnabled) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1B4B).withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(LucideIcons.shieldAlert, color: Color(0xFF818CF8), size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Accessibility Service Recommended',
+                  style: TextStyle(
+                    color: Color(0xFFC7D2FE),
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'On Android 10 to 15, the system automatically mutes third-party microphone access during cellular phone calls. '
+            'Enabling the FDServer Accessibility Service prevents this system mute, allowing clear in-call sound recording.',
+            style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                await provider.openAccessibilitySettings();
+              },
+              icon: const Icon(LucideIcons.externalLink, size: 16),
+              label: const Text('Enable in Accessibility Settings'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),

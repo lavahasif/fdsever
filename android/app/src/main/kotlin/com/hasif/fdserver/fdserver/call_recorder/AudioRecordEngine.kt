@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AutomaticGainControl
+import android.os.Build
 import android.os.Process
 import android.util.Log
 import kotlin.math.abs
@@ -43,14 +44,16 @@ class AudioRecordEngine {
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 
-        // Candidate sources in order of reliability for capturing microphone audio during calls
+        // Candidate sources in order of reliability for capturing microphone audio during calls.
+        // VOICE_COMMUNICATION is #1 because on Samsung and modern Android, standard MIC is silenced
+        // by the modem HAL during cellular calls, whereas VOICE_COMMUNICATION engages the communication pipeline.
         val CANDIDATE_SOURCES = intArrayOf(
-            MediaRecorder.AudioSource.MIC,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.UNPROCESSED,
-            MediaRecorder.AudioSource.VOICE_RECOGNITION
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.DEFAULT,
+            MediaRecorder.AudioSource.UNPROCESSED
         )
 
         private const val SILENCE_THRESHOLD = 50 // Threshold to consider audio flowing (0-32767)
@@ -69,7 +72,7 @@ class AudioRecordEngine {
 
     var activeSampleRate: Int = 16000
         private set
-    var activeSource: Int = MediaRecorder.AudioSource.MIC
+    var activeSource: Int = MediaRecorder.AudioSource.VOICE_COMMUNICATION
         private set
 
     var gainMultiplier: Float = 5.0f
@@ -85,19 +88,29 @@ class AudioRecordEngine {
 
         gainMultiplier = boostGain
 
-        // Gently enable speakerphone so the caller's acoustic sound from the speaker
-        // reaches the microphone clearly. Do NOT modify STREAM_VOICE_CALL volume as that
-        // can cause carrier calls to drop on some devices.
+        // Enable speakerphone so the caller's acoustic voice from the loudspeaker reaches the microphone.
+        // On Android 12+ (API 31+), setCommunicationDevice MUST be used, as isSpeakerphoneOn is deprecated and ignored.
         context?.let { ctx ->
             try {
                 val am = ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                 audioManager = am
                 am?.let {
                     wasSpeakerphoneOn = it.isSpeakerphoneOn
-                    if (!it.isSpeakerphoneOn) {
-                        it.isSpeakerphoneOn = true
-                        Log.i(TAG, "Speakerphone gently enabled for acoustic caller capture")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        try {
+                            val devices = it.availableCommunicationDevices
+                            val speaker = devices.firstOrNull { d -> d.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                            if (speaker != null) {
+                                val setOk = it.setCommunicationDevice(speaker)
+                                Log.i(TAG, "Modern setCommunicationDevice(TYPE_BUILTIN_SPEAKER): $setOk")
+                            }
+                        } catch (st: Throwable) {
+                            Log.w(TAG, "setCommunicationDevice failed: ${st.message}")
+                        }
                     }
+                    @Suppress("DEPRECATION")
+                    it.isSpeakerphoneOn = true
+                    Log.i(TAG, "Speakerphone enabled for acoustic caller capture")
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Non-critical: could not set speakerphone: ${t.message}")
@@ -197,7 +210,7 @@ class AudioRecordEngine {
             var totalFramesRead = 0L
             var consecutiveSilentBuffers = 0
             var candidateSourceIndex = CANDIDATE_SOURCES.indexOf(chosenSource)
-            var hasSwitchedOnSilence = false
+            var sourceSwitches = 0
 
             while (isRecording) {
                 val currentRecord = audioRecord ?: break
@@ -226,18 +239,21 @@ class AudioRecordEngine {
                     // If the first ~1.5 seconds are all 0s (approx 15 buffers), try switching to another audio source
                     if (maxAmp < SILENCE_THRESHOLD) {
                         consecutiveSilentBuffers++
-                        val buffersPerSecond = activeSampleRate / (audioBuffer.size)
-                        if (consecutiveSilentBuffers > (buffersPerSecond * 1.5).toInt() && !hasSwitchedOnSilence) {
+                        val buffersPerSecond = max(1, activeSampleRate / (audioBuffer.size))
+                        if (consecutiveSilentBuffers > (buffersPerSecond * 1.5).toInt() && sourceSwitches < CANDIDATE_SOURCES.size) {
                             consecutiveSilentBuffers = 0
-                            // Try next candidate source
+                            sourceSwitches++
                             candidateSourceIndex = (candidateSourceIndex + 1) % CANDIDATE_SOURCES.size
                             val nextSource = CANDIDATE_SOURCES[candidateSourceIndex]
                             Log.w(TAG, "Silence detected on source $activeSource, dynamically probing next source: $nextSource")
                             trySwitchSource(nextSource)
-                            hasSwitchedOnSilence = true
+                            if (sourceSwitches == CANDIDATE_SOURCES.size) {
+                                onStatusChanged?.invoke("MIC_SILENCE_DETECTED")
+                            }
                         }
                     } else {
                         consecutiveSilentBuffers = 0
+                        sourceSwitches = 0
                     }
 
                     if (totalFramesRead % 150 == 0L) {
@@ -269,17 +285,21 @@ class AudioRecordEngine {
             val minBufferSize = AudioRecord.getMinBufferSize(activeSampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
             if (minBufferSize <= 0) return
             val bufferSize = max(minBufferSize * 2, 4096)
+
+            // Release old AudioRecord first so microphone hardware resource is freed
+            val oldRecord = audioRecord
+            audioRecord = null
+            try {
+                oldRecord?.stop()
+                oldRecord?.release()
+            } catch (_: Exception) {}
+
             val newRecord = AudioRecord(newSource, activeSampleRate, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize)
             if (newRecord.state == AudioRecord.STATE_INITIALIZED) {
                 newRecord.startRecording()
                 if (newRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                    val oldRecord = audioRecord
                     audioRecord = newRecord
                     activeSource = newSource
-                    try {
-                        oldRecord?.stop()
-                        oldRecord?.release()
-                    } catch (_: Exception) {}
                     Log.i(TAG, "Successfully hot-switched audio source to $newSource")
                 } else {
                     newRecord.release()
@@ -311,6 +331,13 @@ class AudioRecordEngine {
     private fun restoreSpeakerphone() {
         try {
             audioManager?.let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    try {
+                        it.clearCommunicationDevice()
+                        Log.i(TAG, "Cleared communication device")
+                    } catch (_: Throwable) {}
+                }
+                @Suppress("DEPRECATION")
                 if (it.isSpeakerphoneOn != wasSpeakerphoneOn) {
                     it.isSpeakerphoneOn = wasSpeakerphoneOn
                     Log.i(TAG, "Restored speakerphone to: $wasSpeakerphoneOn")

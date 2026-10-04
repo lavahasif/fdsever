@@ -115,6 +115,26 @@ class CallRecorderBridge {
     }
   }
 
+  static Future<bool> isAccessibilityEnabled() async {
+    if (kIsWeb || !Platform.isAndroid) return true;
+    init();
+    try {
+      return await _channel.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> openAccessibilitySettings() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    init();
+    try {
+      return await _channel.invokeMethod<bool>('openAccessibilitySettings') ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> setVoipRecording(bool enabled, {double gain = 5.0}) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     init();

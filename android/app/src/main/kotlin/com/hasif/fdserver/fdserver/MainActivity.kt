@@ -949,6 +949,19 @@ class MainActivity : FlutterActivity() {
                             result.error("VOIP_RECORD_ERROR", t.message, null)
                         }
                     }
+                    "isAccessibilityEnabled" -> {
+                        result.success(FocusAccessibilityService.isServiceRunning() || isAccessibilityServiceEnabled(this@MainActivity))
+                    }
+                    "openAccessibilitySettings" -> {
+                        try {
+                            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            })
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("ACCESSIBILITY_SETTINGS_ERROR", e.message, null)
+                        }
+                    }
                     "getVoipStatus" -> {
                         result.success(mapOf(
                             "armed" to CallRecorderService.isVoipArmed,

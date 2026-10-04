@@ -11,6 +11,7 @@ class CallRecorderProvider extends ChangeNotifier {
 
   bool _voipRecordEnabled = false;
   bool _voipCallActive = false;
+  bool _accessibilityEnabled = true;
 
   bool _isRecording = false;
   double _durationSeconds = 0.0;
@@ -46,6 +47,7 @@ class CallRecorderProvider extends ChangeNotifier {
   bool get autoRecordEnabled => _autoRecordEnabled;
   bool get voipRecordEnabled => _voipRecordEnabled;
   bool get voipCallActive => _voipCallActive;
+  bool get accessibilityEnabled => _accessibilityEnabled;
   double get gainMultiplier => _gainMultiplier;
   String get statusMessage => _statusMessage;
   List<CallRecordingItem> get recordings => List.unmodifiable(_recordings);
@@ -164,8 +166,16 @@ class CallRecorderProvider extends ChangeNotifier {
     _hasAudioPermission = perms['audio'] ?? false;
     _hasPhonePermission = perms['phone'] ?? false;
     _hasCallLogPermission = perms['callLog'] ?? false;
+    _accessibilityEnabled = await CallRecorderBridge.isAccessibilityEnabled();
     notifyListeners();
     return allPermissionsGranted;
+  }
+
+  Future<bool> openAccessibilitySettings() async {
+    final ok = await CallRecorderBridge.openAccessibilitySettings();
+    await Future.delayed(const Duration(seconds: 1));
+    await checkPermissions();
+    return ok;
   }
 
   Future<bool> requestPermissions() async {
