@@ -274,6 +274,10 @@ class ProxyVpnService : VpnService() {
                     .addDnsServer("1.1.1.1")
                     .setMtu(1500)
 
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    try { builder.setMetered(false) } catch (_: Exception) {}
+                }
+
                 if (bypassLan) {
                     logDiag("Configuring VpnService.Builder (Public IPv4 routes, Hotspot/LAN bypassed)...")
                     val publicRanges = listOf(
@@ -339,6 +343,20 @@ class ProxyVpnService : VpnService() {
                 isRunning = true
                 onStateChangeListener?.invoke(true, null)
                 logDiag("[OK] VPN TUN established! FD=${vpnInterface?.fd}. Diverting all apps to $host:$port via $protocol")
+
+                // Associate underlying Wi-Fi network so Android knows the VPN provides internet over Wi-Fi
+                try {
+                    val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val activeNet = cm?.activeNetwork
+                        if (activeNet != null) {
+                            setUnderlyingNetworks(arrayOf(activeNet))
+                            logDiag("Associated underlying network: $activeNet")
+                        }
+                    }
+                } catch (e: Exception) {
+                    logDiag("Warning: setUnderlyingNetworks failed: ${e.message}")
+                }
 
                 // Start packet processing loop
                 runTunLoop(vpnInterface!!)
@@ -412,12 +430,9 @@ class ProxyVpnService : VpnService() {
                 return
             } else {
                 // Forward UDP packet (VoIP, WebRTC, STUN, TURN, RTP, etc.) to the UDP Relay engine
-                val payloadLen = length - (headerLen + 8)
-                if (payloadLen > 0) {
-                    val udpPayload = packet.copyOfRange(headerLen + 8, length)
-                    workerExecutor?.execute {
-                        handleUdpPacket(srcIp, srcPort, dstIp, dstPort, udpPayload)
-                    }
+                val origPacketCopy = packet.copyOfRange(0, length)
+                workerExecutor?.execute {
+                    handleUdpPacket(srcIp, srcPort, dstIp, dstPort, origPacketCopy, length)
                 }
                 return
             }
@@ -548,6 +563,39 @@ class ProxyVpnService : VpnService() {
                                     ((packet[headerLen + 5].toLong() and 0xFF) shl 16) or
                                     ((packet[headerLen + 6].toLong() and 0xFF) shl 8) or
                                     (packet[headerLen + 7].toLong() and 0xFF)
+
+                    // Fast captive portal probe validation (HTTP 204)
+                    if (session.dstPort == 80 && payloadLen >= 14) {
+                        val preview = String(payload, 0, minOf(payloadLen, 128), Charsets.US_ASCII)
+                        if (preview.startsWith("GET /generate_204") || preview.startsWith("GET /gen_204")) {
+                            val nextAck = (clientSeq + payloadLen) and 0xFFFFFFFFL
+                            val resp204 = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
+                            val curSeq = session.serverSeq.get()
+                            sendTcpPacket(
+                                srcIp = dstIp,
+                                srcPort = dstPort,
+                                dstIp = srcIp,
+                                dstPort = srcPort,
+                                seq = curSeq,
+                                ack = nextAck,
+                                flags = 0x18, // PSH | ACK
+                                payload = resp204
+                            )
+                            sendTcpPacket(
+                                srcIp = dstIp,
+                                srcPort = dstPort,
+                                dstIp = srcIp,
+                                dstPort = srcPort,
+                                seq = (curSeq + resp204.size) and 0xFFFFFFFFL,
+                                ack = nextAck,
+                                flags = 0x11, // FIN | ACK
+                                payload = null
+                            )
+                            activeSessions.remove(connKey)
+                            logDiag("[204-PROBE] Instant HTTP 204 returned for captive portal check ($connKey)")
+                            return
+                        }
+                    }
 
                     val expectedAck = session.clientAck.get()
                     val diff = ((clientSeq + payloadLen - expectedAck).toInt())
@@ -1262,57 +1310,61 @@ class ProxyVpnService : VpnService() {
         val icmpPayloadLen = origHeaderLen + 8 // original IP header + 8 bytes of UDP
         val icmpTotalLen = 8 + icmpPayloadLen
         val totalLen = 20 + icmpTotalLen
-        val packet = ByteArray(totalLen)
 
-        // IP Header (20 bytes)
-        packet[0] = 0x45.toByte() // IPv4, IHL 5
-        packet[1] = 0x00.toByte() // TOS
-        packet[2] = ((totalLen shr 8) and 0xFF).toByte()
-        packet[3] = (totalLen and 0xFF).toByte()
-        val id = (System.currentTimeMillis() and 0xFFFF).toInt()
-        packet[4] = ((id shr 8) and 0xFF).toByte()
-        packet[5] = (id and 0xFF).toByte()
-        packet[6] = 0x00.toByte()
-        packet[7] = 0x00.toByte()
-        packet[8] = 64.toByte() // TTL
-        packet[9] = 1.toByte()  // Protocol ICMP
+        fun buildAndSend(dstClientIpBytes: ByteArray) {
+            val packet = ByteArray(totalLen)
+            packet[0] = 0x45.toByte() // IPv4, IHL 5
+            packet[1] = 0x00.toByte() // TOS
+            packet[2] = ((totalLen shr 8) and 0xFF).toByte()
+            packet[3] = (totalLen and 0xFF).toByte()
+            val id = (System.currentTimeMillis() and 0xFFFF).toInt()
+            packet[4] = ((id shr 8) and 0xFF).toByte()
+            packet[5] = (id and 0xFF).toByte()
+            packet[6] = 0x00.toByte()
+            packet[7] = 0x00.toByte()
+            packet[8] = 64.toByte() // TTL
+            packet[9] = 1.toByte()  // Protocol ICMP
 
-        // Source IP = original packet's destination IP (host unreachable)
-        System.arraycopy(origPacket, 16, packet, 12, 4)
-        // Destination IP = original packet's source IP (the client app)
-        System.arraycopy(origPacket, 12, packet, 16, 4)
+            // Source IP = original packet's destination IP (remote server)
+            System.arraycopy(origPacket, 16, packet, 12, 4)
+            // Destination IP = client IP
+            System.arraycopy(dstClientIpBytes, 0, packet, 16, 4)
 
-        // IP Checksum
-        val ipChecksum = computeChecksum(packet, 0, 20)
-        packet[10] = ((ipChecksum shr 8) and 0xFF).toByte()
-        packet[11] = (ipChecksum and 0xFF).toByte()
+            val ipChecksum = computeChecksum(packet, 0, 20)
+            packet[10] = ((ipChecksum shr 8) and 0xFF).toByte()
+            packet[11] = (ipChecksum and 0xFF).toByte()
 
-        // ICMP Header (offset 20)
-        val icmpOffset = 20
-        packet[icmpOffset] = 3.toByte() // Type 3: Destination Unreachable
-        packet[icmpOffset + 1] = 3.toByte() // Code 3: Port Unreachable
-        packet[icmpOffset + 2] = 0.toByte() // Checksum placeholder
-        packet[icmpOffset + 3] = 0.toByte()
-        packet[icmpOffset + 4] = 0.toByte() // Unused
-        packet[icmpOffset + 5] = 0.toByte()
-        packet[icmpOffset + 6] = 0.toByte()
-        packet[icmpOffset + 7] = 0.toByte()
+            val icmpOffset = 20
+            packet[icmpOffset] = 3.toByte() // Type 3: Destination Unreachable
+            packet[icmpOffset + 1] = 3.toByte() // Code 3: Port Unreachable
+            packet[icmpOffset + 2] = 0.toByte()
+            packet[icmpOffset + 3] = 0.toByte()
 
-        // Copy original IP header + first 8 bytes of original transport header
-        System.arraycopy(origPacket, 0, packet, icmpOffset + 8, icmpPayloadLen)
+            System.arraycopy(origPacket, 0, packet, icmpOffset + 8, icmpPayloadLen)
 
-        // ICMP Checksum
-        val icmpChecksum = computeChecksum(packet, icmpOffset, icmpTotalLen)
-        packet[icmpOffset + 2] = ((icmpChecksum shr 8) and 0xFF).toByte()
-        packet[icmpOffset + 3] = (icmpChecksum and 0xFF).toByte()
+            var icmpChecksum = computeChecksum(packet, icmpOffset, icmpTotalLen)
+            if (icmpChecksum == 0) icmpChecksum = 0xFFFF
+            packet[icmpOffset + 2] = ((icmpChecksum shr 8) and 0xFF).toByte()
+            packet[icmpOffset + 3] = (icmpChecksum and 0xFF).toByte()
 
-        synchronized(tunWriteLock) {
-            try {
-                tunOutputStream?.write(packet)
-                tunOutputStream?.flush()
-            } catch (e: Exception) {
-                logDiag("[ICMP-WRITE-ERR] Failed writing ICMP Port Unreachable: ${e.message}")
+            synchronized(tunWriteLock) {
+                try {
+                    tunOutputStream?.write(packet)
+                    tunOutputStream?.flush()
+                } catch (e: Exception) {
+                    logDiag("[ICMP-WRITE-ERR] Failed writing ICMP Port Unreachable: ${e.message}")
+                }
             }
+        }
+
+        // Send to original source IP
+        val origSrc = origPacket.copyOfRange(12, 16)
+        buildAndSend(origSrc)
+
+        // If original source was not 10.0.0.2 (e.g. bound to physical Wi-Fi IP), also send to 10.0.0.2 (VPN IP)
+        val vpnIp = byteArrayOf(10.toByte(), 0.toByte(), 0.toByte(), 2.toByte())
+        if (!origSrc.contentEquals(vpnIp)) {
+            buildAndSend(vpnIp)
         }
     }
 
@@ -1326,9 +1378,16 @@ class ProxyVpnService : VpnService() {
         srcPort: Int,
         dstIp: String,
         dstPort: Int,
-        payload: ByteArray
+        origPacket: ByteArray,
+        origLength: Int
     ) {
-        // If protocol is SOCKS5, attempt SOCKS5 UDP ASSOCIATE first
+        val headerLen = (origPacket[0].toInt() and 0x0F) * 4
+        val payloadOffset = headerLen + 8
+        val payloadLen = origLength - payloadOffset
+        if (payloadLen <= 0) return
+        val payload = origPacket.copyOfRange(payloadOffset, origLength)
+
+        // Try SOCKS5 UDP ASSOCIATE first if protocol is SOCKS5
         if (targetProtocol.equals("SOCKS5", ignoreCase = true)) {
             if (!isSocks5UdpAttempted.get()) {
                 synchronized(isSocks5UdpAttempted) {
@@ -1345,8 +1404,15 @@ class ProxyVpnService : VpnService() {
             }
         }
 
-        // Direct Protected UDP Relay fallback (works for HTTP proxy or when SOCKS5 UDP is unavailable)
-        sendDirectUdpPacket(srcIp, srcPort, dstIp, dstPort, payload)
+        // Direct Protected UDP Relay fallback (works when Wi-Fi/Hotspot allows raw UDP)
+        val directSent = sendDirectUdpPacket(srcIp, srcPort, dstIp, dstPort, payload)
+        if (!directSent) {
+            // Direct UDP failed (e.g. ENETUNREACH on proxy-only hotspot).
+            // Send ICMP Port Unreachable immediately so WebRTC (Botim, Meet, WhatsApp)
+            // fails fast on UDP and instantly switches to TCP / TLS TURN relay on port 443!
+            logDiag("[UDP->ICMP] UDP unreachable for $srcIp:$srcPort->$dstIp:$dstPort. Sending ICMP Port Unreachable for TCP fallback...")
+            sendIcmpPortUnreachable(origPacket, origLength)
+        }
     }
 
     private fun initSocks5UdpAssociate(): Boolean {
@@ -1579,7 +1645,7 @@ class ProxyVpnService : VpnService() {
         dstIp: String,
         dstPort: Int,
         payload: ByteArray
-    ) {
+    ): Boolean {
         val sessionKey = "$clientIp:$clientPort->$dstIp:$dstPort"
         var session = directUdpSessions[sessionKey]
 
@@ -1606,7 +1672,7 @@ class ProxyVpnService : VpnService() {
                 }
             } catch (e: Exception) {
                 logDiag("[UDP-DIRECT-ERR] Cannot open direct UDP socket: ${e.message}")
-                return
+                return false
             }
         }
 
@@ -1615,8 +1681,10 @@ class ProxyVpnService : VpnService() {
             val dgram = DatagramPacket(payload, payload.size, InetAddress.getByName(dstIp), dstPort)
             session.socket.send(dgram)
             totalBytesOut.addAndGet(payload.size.toLong())
+            return true
         } catch (e: Exception) {
             logDiag("[UDP-DIRECT-ERR] Send failed for $sessionKey: ${e.message}")
+            return false
         }
     }
 
