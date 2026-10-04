@@ -469,6 +469,52 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
           ),
           const Divider(color: Color(0xFF27272A), height: 24),
 
+          // VoIP auto-record switch
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'VoIP Call Recording',
+                          style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(width: 8),
+                        if (provider.voipCallActive)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'CALL LIVE',
+                              style: TextStyle(fontSize: 9, color: Color(0xFFEF4444), fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'Auto-records WhatsApp, IMO, Botim, Meet & other VoIP calls. Use speakerphone for the caller\'s voice.',
+                      style: TextStyle(fontSize: 12, color: Colors.white60),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: provider.voipRecordEnabled,
+                onChanged: (val) => provider.setVoipRecordEnabled(val),
+                activeThumbColor: const Color(0xFF10B981),
+              ),
+            ],
+          ),
+          const Divider(color: Color(0xFF27272A), height: 24),
+
           // Receiver acoustic gain boost slider
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

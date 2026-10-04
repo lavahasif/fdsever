@@ -115,6 +115,32 @@ class CallRecorderBridge {
     }
   }
 
+  static Future<bool> setVoipRecording(bool enabled, {double gain = 5.0}) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    init();
+    try {
+      final res = await _channel.invokeMethod<bool>('setVoipRecording', {
+        'enabled': enabled,
+        'gain': gain,
+      });
+      return res ?? false;
+    } catch (e) {
+      debugPrint('Error setting VoIP recording: $e');
+      return false;
+    }
+  }
+
+  static Future<Map<String, bool>> getVoipStatus() async {
+    if (kIsWeb || !Platform.isAndroid) return {'armed': false, 'callActive': false};
+    init();
+    try {
+      final res = await _channel.invokeMapMethod<String, bool>('getVoipStatus');
+      return res != null ? Map<String, bool>.from(res) : {'armed': false, 'callActive': false};
+    } catch (e) {
+      return {'armed': false, 'callActive': false};
+    }
+  }
+
   static Future<List<CallRecordingItem>> listRecordings() async {
     if (kIsWeb || !Platform.isAndroid) return [];
     init();

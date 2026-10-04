@@ -7,6 +7,10 @@ import '../services/call_recorder_bridge.dart';
 class CallRecorderProvider extends ChangeNotifier {
   static const String _keyAutoRecord = 'call_recorder_auto_record';
   static const String _keyGain = 'call_recorder_gain';
+  static const String _keyVoip = 'call_recorder_voip';
+
+  bool _voipRecordEnabled = false;
+  bool _voipCallActive = false;
 
   bool _isRecording = false;
   double _durationSeconds = 0.0;
@@ -40,6 +44,8 @@ class CallRecorderProvider extends ChangeNotifier {
   String get callState => _callState;
   String get incomingNumber => _incomingNumber;
   bool get autoRecordEnabled => _autoRecordEnabled;
+  bool get voipRecordEnabled => _voipRecordEnabled;
+  bool get voipCallActive => _voipCallActive;
   double get gainMultiplier => _gainMultiplier;
   String get statusMessage => _statusMessage;
   List<CallRecordingItem> get recordings => List.unmodifiable(_recordings);
@@ -87,6 +93,7 @@ class CallRecorderProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _autoRecordEnabled = prefs.getBool(_keyAutoRecord) ?? true;
     _gainMultiplier = prefs.getDouble(_keyGain) ?? 5.0;
+    _voipRecordEnabled = prefs.getBool(_keyVoip) ?? false;
 
     CallRecorderBridge.onCallStateChanged = (state, number) {
       _callState = state;
@@ -104,7 +111,13 @@ class CallRecorderProvider extends ChangeNotifier {
     };
 
     CallRecorderBridge.onRecorderStatus = (status) {
-      if (status.startsWith('RECORDING_FINISHED:')) {
+      if (status == 'VOIP_CALL_STARTED') {
+        _voipCallActive = true;
+        _statusMessage = 'VoIP Call Detected - Recording';
+      } else if (status == 'VOIP_CALL_ENDED') {
+        _voipCallActive = false;
+        _statusMessage = 'VoIP Call Ended';
+      } else if (status.startsWith('RECORDING_FINISHED:')) {
         _statusMessage = 'Recording Saved';
         refreshRecordings();
       } else if (status == 'RECORDING_ACTIVE') {
@@ -135,6 +148,9 @@ class CallRecorderProvider extends ChangeNotifier {
 
     await checkPermissions();
     await syncAutoRecordConfig();
+    if (_voipRecordEnabled && _hasAudioPermission) {
+      await CallRecorderBridge.setVoipRecording(true, gain: _gainMultiplier);
+    }
     await checkInitialState();
     await refreshRecordings();
 
@@ -173,6 +189,32 @@ class CallRecorderProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyAutoRecord, enabled);
     await syncAutoRecordConfig();
+    notifyListeners();
+  }
+
+  Future<void> setVoipRecordEnabled(bool enabled) async {
+    if (enabled) {
+      await checkPermissions();
+      if (!_hasAudioPermission) {
+        final granted = await requestPermissions();
+        if (!granted) {
+          _statusMessage = 'Microphone permission required for VoIP recording';
+          notifyListeners();
+          return;
+        }
+      }
+    }
+    final ok = await CallRecorderBridge.setVoipRecording(enabled, gain: _gainMultiplier);
+    if (!ok && enabled) {
+      _statusMessage = 'Could not start VoIP monitor';
+      notifyListeners();
+      return;
+    }
+    _voipRecordEnabled = enabled;
+    if (!enabled) _voipCallActive = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyVoip, enabled);
+    _statusMessage = enabled ? 'VoIP recording armed' : 'VoIP recording off';
     notifyListeners();
   }
 

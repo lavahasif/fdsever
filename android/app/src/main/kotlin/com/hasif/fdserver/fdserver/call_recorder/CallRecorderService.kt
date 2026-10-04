@@ -11,6 +11,9 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import com.hasif.fdserver.fdserver.MainActivity
 import org.json.JSONObject
@@ -36,6 +39,17 @@ class CallRecorderService : Service() {
         const val EXTRA_FILE_PATH = "extra_file_path"
         const val EXTRA_GAIN = "extra_gain"
         const val EXTRA_PHONE_NUMBER = "extra_phone_number"
+        const val ACTION_ARM_VOIP = "com.hasif.fdserver.call_recorder.ARM_VOIP"
+        const val ACTION_DISARM_VOIP = "com.hasif.fdserver.call_recorder.DISARM_VOIP"
+        const val VOIP_LABEL = "VoIP Call"
+        private const val VOIP_POLL_MS = 1000L
+        private const val VOIP_END_GRACE_POLLS = 3
+
+        @Volatile var isVoipArmed = false
+            private set
+
+        @Volatile var isVoipCallActive = false
+            private set
 
         @Volatile var isRunning = false
             private set
@@ -53,6 +67,51 @@ class CallRecorderService : Service() {
     }
 
     private val recordEngine = AudioRecordEngine()
+    private val voipHandler = Handler(Looper.getMainLooper())
+    private var voipGain = 5.0f
+    private var voipIdlePolls = 0
+    private var voipRecordingStartedByMonitor = false
+
+    private val voipPoller = object : Runnable {
+        override fun run() {
+            if (!isVoipArmed) return
+            pollVoipState()
+            voipHandler.postDelayed(this, VOIP_POLL_MS)
+        }
+    }
+
+    /**
+     * VoIP apps (WhatsApp, IMO, Botim, Meet, Telegram...) switch the platform audio mode to
+     * MODE_IN_COMMUNICATION for the duration of a call. Cellular calls use MODE_IN_CALL, so the
+     * two never collide.
+     */
+    private fun pollVoipState() {
+        val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val inVoip = am.mode == AudioManager.MODE_IN_COMMUNICATION
+        if (inVoip) {
+            voipIdlePolls = 0
+            if (!isVoipCallActive) {
+                isVoipCallActive = true
+                statusListener?.invoke("VOIP_CALL_STARTED")
+                if (!isRunning) {
+                    voipRecordingStartedByMonitor = true
+                    currentPhoneNumber = VOIP_LABEL
+                    startRecording(generateDefaultFilePath(VOIP_LABEL, "VoIP"), voipGain)
+                }
+            }
+        } else if (isVoipCallActive) {
+            voipIdlePolls++
+            if (voipIdlePolls >= VOIP_END_GRACE_POLLS) {
+                isVoipCallActive = false
+                voipIdlePolls = 0
+                statusListener?.invoke("VOIP_CALL_ENDED")
+                if (voipRecordingStartedByMonitor) {
+                    voipRecordingStartedByMonitor = false
+                    stopRecording()
+                }
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -64,10 +123,29 @@ class CallRecorderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> {
+            ACTION_ARM_VOIP -> {
+                voipGain = intent.getFloatExtra(EXTRA_GAIN, 5.0f)
+                startForegroundWithNotification("", "")
+                if (!isVoipArmed) {
+                    isVoipArmed = true
+                    voipHandler.removeCallbacks(voipPoller)
+                    voipHandler.post(voipPoller)
+                }
+                return START_STICKY
+            }
+            ACTION_DISARM_VOIP -> {
+                isVoipArmed = false
+                isVoipCallActive = false
+                voipRecordingStartedByMonitor = false
+                voipHandler.removeCallbacks(voipPoller)
                 stopRecording()
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_STOP -> {
+                stopRecording()
+                if (!isVoipArmed) stopSelf()
+                return if (isVoipArmed) START_STICKY else START_NOT_STICKY
             }
             ACTION_START -> {
                 val phoneNumber = intent.getStringExtra(EXTRA_PHONE_NUMBER) ?: "Unknown"
@@ -170,16 +248,19 @@ class CallRecorderService : Service() {
     }
 
     override fun onDestroy() {
+        isVoipArmed = false
+        isVoipCallActive = false
+        voipHandler.removeCallbacks(voipPoller)
         stopRecording()
         super.onDestroy()
     }
 
-    private fun generateDefaultFilePath(phoneNumber: String): String {
+    private fun generateDefaultFilePath(phoneNumber: String, prefix: String = "Call"): String {
         val dir = File(applicationContext.filesDir, "call_recordings")
         if (!dir.exists()) dir.mkdirs()
         val cleanNumber = phoneNumber.replace(Regex("[^0-9+]"), "").ifEmpty { "Unknown" }
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return File(dir, "Call_${timestamp}_${cleanNumber}.wav").absolutePath
+        return File(dir, "${prefix}_${timestamp}_${cleanNumber}.wav").absolutePath
     }
 
     private fun createNotificationChannel() {
@@ -201,7 +282,9 @@ class CallRecorderService : Service() {
 
     private fun buildNotification(path: String, phoneNumber: String): Notification {
         val fileName = File(path).name
-        val contentSubtext = if (phoneNumber.isNotEmpty() && phoneNumber != "Unknown") {
+        val contentSubtext = if (path.isEmpty()) {
+            "Waiting for WhatsApp / IMO / Botim / VoIP calls"
+        } else if (phoneNumber.isNotEmpty() && phoneNumber != "Unknown") {
             "Call with: $phoneNumber (High-Gain Mode)"
         } else {
             "Recording: $fileName"

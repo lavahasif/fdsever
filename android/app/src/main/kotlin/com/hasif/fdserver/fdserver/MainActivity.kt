@@ -923,6 +923,38 @@ class MainActivity : FlutterActivity() {
                             .apply()
                         result.success(true)
                     }
+                    "setVoipRecording" -> {
+                        try {
+                            val enabled = call.argument<Boolean>("enabled") ?: false
+                            val gain = (call.argument<Double>("gain") ?: 5.0).toFloat()
+                            getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE).edit()
+                                .putBoolean("voip_record_enabled", enabled)
+                                .apply()
+                            if (enabled &&
+                                ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                result.error("PERMISSION_DENIED", "RECORD_AUDIO permission is not granted", null)
+                                return@setMethodCallHandler
+                            }
+                            val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
+                                action = if (enabled) CallRecorderService.ACTION_ARM_VOIP else CallRecorderService.ACTION_DISARM_VOIP
+                                putExtra(CallRecorderService.EXTRA_GAIN, gain)
+                            }
+                            if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
+                            result.success(true)
+                        } catch (t: Throwable) {
+                            result.error("VOIP_RECORD_ERROR", t.message, null)
+                        }
+                    }
+                    "getVoipStatus" -> {
+                        result.success(mapOf(
+                            "armed" to CallRecorderService.isVoipArmed,
+                            "callActive" to CallRecorderService.isVoipCallActive
+                        ))
+                    }
                     "playAudio" -> {
                         val path = call.argument<String>("path") ?: ""
                         val ok = CallAudioPlayer.play(path, applicationContext)
