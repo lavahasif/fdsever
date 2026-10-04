@@ -82,22 +82,32 @@ bool WavWriter::writePcm(const int16_t* samples, size_t numSamples, float gainMu
     size_t bytesToWrite = numSamples * sizeof(int16_t);
 
     if (gainMultiplier > 1.01f || gainMultiplier < 0.99f) {
-        // Adaptive acoustic speech booster with soft-knee tanh limiter.
-        // Faint acoustic caller speech from the phone earpiece (< 8000 amplitude) receives up to
-        // 1.8x additional acoustic expansion, while loud near-end speech is softly compressed
-        // to prevent digital clipping/distortion.
+        // High-potency acoustic voice booster with soft-knee limiter.
+        // Faint acoustic caller speech from the phone loudspeaker or earpiece (samples < 3000)
+        // receives full gain amplification with an extra acoustic expansion curve.
+        // Peak samples (> 30000) are softly compressed to prevent digital clipping/distortion.
         std::vector<int16_t> boosted(numSamples);
         for (size_t i = 0; i < numSamples; ++i) {
             float sample = static_cast<float>(samples[i]);
             float absSample = std::abs(sample);
             float effectiveGain = gainMultiplier;
-            if (absSample < 8000.0f) {
-                float boostFactor = 1.0f + 0.8f * (1.0f - (absSample / 8000.0f));
+
+            if (absSample < 3500.0f && absSample > 15.0f) {
+                // Boost faint incoming speech from the acoustic path
+                float boostFactor = 1.0f + 1.5f * (1.0f - (absSample / 3500.0f));
                 effectiveGain *= boostFactor;
             }
-            float norm = (sample * effectiveGain) / 32768.0f;
-            float out = std::tanh(norm);
-            int32_t val = static_cast<int32_t>(out * 32767.0f);
+
+            float multiplied = sample * effectiveGain;
+
+            // Soft-knee peak compression near full scale (prevents harsh distortion)
+            if (multiplied > 30000.0f) {
+                multiplied = 30000.0f + 2767.0f * std::tanh((multiplied - 30000.0f) / 6000.0f);
+            } else if (multiplied < -30000.0f) {
+                multiplied = -30000.0f - 2768.0f * std::tanh((-multiplied - 30000.0f) / 6000.0f);
+            }
+
+            int32_t val = static_cast<int32_t>(multiplied);
             if (val > 32767) val = 32767;
             else if (val < -32768) val = -32768;
             boosted[i] = static_cast<int16_t>(val);

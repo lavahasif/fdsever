@@ -41,7 +41,7 @@ class CallRecorderBridge {
     }
   }
 
-  static Future<bool> startRecording({String? path, double gain = 3.5, String? phoneNumber}) async {
+  static Future<bool> startRecording({String? path, double gain = 5.0, String? phoneNumber}) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     init();
     try {
@@ -101,7 +101,7 @@ class CallRecorderBridge {
     }
   }
 
-  static Future<bool> setAutoRecord(bool enabled, {double gain = 3.5}) async {
+  static Future<bool> setAutoRecord(bool enabled, {double gain = 5.0}) async {
     if (kIsWeb || !Platform.isAndroid) return false;
     init();
     try {

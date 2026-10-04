@@ -369,7 +369,7 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
       decoration: BoxDecoration(
         color: const Color(0xFF1C1917),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -377,10 +377,10 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+              color: const Color(0xFF10B981).withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(LucideIcons.volume2, size: 16, color: Color(0xFFF59E0B)),
+            child: const Icon(LucideIcons.volume2, size: 16, color: Color(0xFF10B981)),
           ),
           const SizedBox(width: 12),
           const Expanded(
@@ -388,12 +388,14 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Two-Way Clarity Advisory',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFF59E0B)),
+                  '📢 Tip for Clear Two-Way Audio',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  'On Android 10–16, direct telephony line taps are restricted by Google. Turning on Speakerphone or holding the phone naturally allows our high-gain acoustic engine to capture both your voice and the caller with optimal balance.',
+                  'Android blocks third-party apps from recording internal carrier lines. '
+                  'For loud and clear recordings of both parties, tap Speakerphone on your call screen. '
+                  'Our high-gain native acoustic booster captures the caller voice through the mic.',
                   style: TextStyle(fontSize: 12, color: Colors.white70, height: 1.4),
                 ),
               ],
@@ -498,10 +500,10 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
             style: TextStyle(fontSize: 12, color: Colors.white60),
           ),
           Slider(
-            value: provider.gainMultiplier,
+            value: provider.gainMultiplier.clamp(1.0, 10.0),
             min: 1.0,
-            max: 6.0,
-            divisions: 50,
+            max: 10.0,
+            divisions: 90,
             label: '${provider.gainMultiplier.toStringAsFixed(1)}x',
             activeColor: const Color(0xFF10B981),
             inactiveColor: const Color(0xFF27272A),

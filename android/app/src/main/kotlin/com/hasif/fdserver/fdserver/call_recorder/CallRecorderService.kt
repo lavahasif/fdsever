@@ -73,7 +73,7 @@ class CallRecorderService : Service() {
                 val phoneNumber = intent.getStringExtra(EXTRA_PHONE_NUMBER) ?: "Unknown"
                 currentPhoneNumber = phoneNumber
                 val path = intent.getStringExtra(EXTRA_FILE_PATH) ?: generateDefaultFilePath(phoneNumber)
-                val gain = intent.getFloatExtra(EXTRA_GAIN, 3.5f)
+                val gain = intent.getFloatExtra(EXTRA_GAIN, 5.0f)
 
                 startForegroundWithNotification(path, phoneNumber)
                 startRecording(path, gain)
@@ -118,7 +118,7 @@ class CallRecorderService : Service() {
             statusListener?.invoke(status)
         }
 
-        val success = recordEngine.startCapture(path, gain)
+        val success = recordEngine.startCapture(path, gain, applicationContext)
         if (success) {
             isRunning = true
             Log.i(TAG, "Call recorder service recording started at $path (number=$currentPhoneNumber)")

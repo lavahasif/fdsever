@@ -47,7 +47,7 @@ class CallBroadcastReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("call_recorder_prefs", Context.MODE_PRIVATE)
         val isAutoRecordEnabled = prefs.getBoolean("auto_record_enabled", false)
-        val gain = prefs.getFloat("auto_record_gain", 3.5f)
+        val gain = prefs.getFloat("auto_record_gain", 5.0f)
 
         if (!isAutoRecordEnabled) {
             Log.d(TAG, "Auto-record disabled in background prefs, skipping")
@@ -86,17 +86,15 @@ class CallBroadcastReceiver : BroadcastReceiver() {
             }
 
             TelephonyManager.EXTRA_STATE_IDLE -> {
-                // Call ended - stop recording
-                if (CallRecorderService.isRunning) {
-                    Log.i(TAG, "Stopping background call recorder because phone is IDLE")
-                    val stopIntent = Intent(context, CallRecorderService::class.java).apply {
-                        this.action = CallRecorderService.ACTION_STOP
-                    }
-                    try {
-                        context.startService(stopIntent)
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "Failed to stop background CallRecorderService: ${t.message}")
-                    }
+                // Call ended - immediately stop recording
+                Log.i(TAG, "Stopping background call recorder because phone is IDLE (isRunning=${CallRecorderService.isRunning})")
+                val stopIntent = Intent(context, CallRecorderService::class.java).apply {
+                    this.action = CallRecorderService.ACTION_STOP
+                }
+                try {
+                    context.startService(stopIntent)
+                } catch (t: Throwable) {
+                    Log.e(TAG, "Failed to stop background CallRecorderService: ${t.message}")
                 }
                 savedNumber = null
             }

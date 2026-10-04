@@ -42,7 +42,7 @@ class MainActivity : FlutterActivity() {
     private var callStateManager: CallStateManager? = null
     private var callRecorderChannel: MethodChannel? = null
     private var isAutoRecordEnabled: Boolean = false
-    private var autoRecordGain: Float = 3.5f
+    private var autoRecordGain: Float = 5.0f
     private val VPN_REQUEST_CODE = 2048
     private var vpnPendingResult: MethodChannel.Result? = null
     private var focusGuardChannel: MethodChannel? = null
@@ -861,7 +861,7 @@ class MainActivity : FlutterActivity() {
                                 return@setMethodCallHandler
                             }
                             val path = call.argument<String>("path")
-                            val gain = (call.argument<Double>("gain") ?: 3.5).toFloat()
+                            val gain = (call.argument<Double>("gain") ?: 5.0).toFloat()
                             val phoneNumber = call.argument<String>("phoneNumber") ?: "Unknown"
                             val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
                                 action = CallRecorderService.ACTION_START
@@ -913,7 +913,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "setAutoRecord" -> {
                         val enabled = call.argument<Boolean>("enabled") ?: false
-                        val gain = (call.argument<Double>("gain") ?: 3.5).toFloat()
+                        val gain = (call.argument<Double>("gain") ?: 5.0).toFloat()
                         isAutoRecordEnabled = enabled
                         autoRecordGain = gain
                         // Sync to SharedPreferences for background BroadcastReceiver auto-recording
@@ -1087,7 +1087,7 @@ class MainActivity : FlutterActivity() {
                                 } else {
                                     startService(intent)
                                 }
-                            } else if (state == CallStateManager.STATE_IDLE && CallRecorderService.isRunning) {
+                            } else if (state == CallStateManager.STATE_IDLE) {
                                 val intent = Intent(this@MainActivity, CallRecorderService::class.java).apply {
                                     action = CallRecorderService.ACTION_STOP
                                 }

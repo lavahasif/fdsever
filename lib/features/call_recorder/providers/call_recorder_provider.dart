@@ -16,7 +16,7 @@ class CallRecorderProvider extends ChangeNotifier {
   String _callState = 'IDLE';
   String _incomingNumber = '';
   bool _autoRecordEnabled = true;
-  double _gainMultiplier = 3.5;
+  double _gainMultiplier = 5.0;
   String _statusMessage = 'Ready';
 
   bool _hasAudioPermission = false;
@@ -86,7 +86,7 @@ class CallRecorderProvider extends ChangeNotifier {
 
     final prefs = await SharedPreferences.getInstance();
     _autoRecordEnabled = prefs.getBool(_keyAutoRecord) ?? true;
-    _gainMultiplier = prefs.getDouble(_keyGain) ?? 3.5;
+    _gainMultiplier = prefs.getDouble(_keyGain) ?? 5.0;
 
     CallRecorderBridge.onCallStateChanged = (state, number) {
       _callState = state;
@@ -115,6 +115,8 @@ class CallRecorderProvider extends ChangeNotifier {
         _statusMessage = 'Microphone permission denied. Tap Grant Permissions.';
       } else if (status == 'MIC_SILENCED_OR_MUTED') {
         _statusMessage = 'Microphone temporarily silenced by telecom HAL.';
+      } else if (status == 'MIC_SILENCE_DETECTED') {
+        _statusMessage = '⚠ Silence detected! Speakerphone enabled automatically. If still silent, your device may block mic during calls.';
       } else if (status == 'MIC_INTERRUPTED_BY_OEM') {
         _statusMessage = 'Microphone capture interrupted by OEM audio routing.';
       } else {
