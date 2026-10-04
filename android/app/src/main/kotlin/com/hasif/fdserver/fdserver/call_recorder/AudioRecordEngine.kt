@@ -6,7 +6,9 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
+import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.os.Process
 import android.util.Log
@@ -17,24 +19,12 @@ import kotlin.math.max
  * Resilient, high-performance audio recording engine using Android's public AudioRecord API.
  * Engineered for Android 10 through Android 16 (API 29 to 36).
  *
- * Key design decisions for audible call recording:
- *
- * 1. Source priority: MIC and VOICE_COMMUNICATION are priority #1.
- *    VOICE_RECOGNITION is demoted to last because Android AudioPolicy mutes it during
- *    active telephony calls to prevent Google Assistant from listening to calls.
- *
- * 2. Native telephony sample rate: 16000 Hz is priority #1. Cellular voice hardware HALs
- *    (VoLTE, VoNR, AMR-WB) operate natively at 16 kHz. Asking for 44.1 kHz during a call
- *    forces AudioFlinger software resampling which often fails or produces silence.
- *
- * 3. Active source probing: Before committing to an audio source, the engine test-reads
- *    to confirm that non-zero PCM samples are actually arriving from the hardware.
- *
- * 4. Dynamic silence fallback: If a selected source produces all-zero buffers during a call,
- *    the engine dynamically switches to the next audio source on the fly.
- *
- * 5. Telephony safety: Never modifies STREAM_VOICE_CALL volume or forces raw in-call audio
- *    routing, preventing carrier call drops or unexpected call termination.
+ * Key enhancements for capturing BOTH parties' voices:
+ * 1. Probes VOICE_CALL (Source 4) and VOICE_DOWNLINK (Source 3) first for native baseband two-way audio.
+ * 2. Explicitly DISABLES AcousticEchoCanceler (AEC) so hardware DSP doesn't erase caller's voice.
+ * 3. Explicitly DISABLES NoiseSuppressor (NS) so quiet acoustic leakage from speaker isn't silenced.
+ * 4. Enables AutomaticGainControl (AGC) to boost faint remote speech.
+ * 5. Uses MODIFY_AUDIO_SETTINGS to enable speakerphone and set communication audio mode.
  */
 class AudioRecordEngine {
 
@@ -44,16 +34,24 @@ class AudioRecordEngine {
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
 
-        // Candidate sources in order of reliability for capturing microphone audio during calls.
-        // VOICE_COMMUNICATION is #1 because on Samsung and modern Android, standard MIC is silenced
-        // by the modem HAL during cellular calls, whereas VOICE_COMMUNICATION engages the communication pipeline.
+        // Candidate sources in order of two-way recording capability:
+        // 1. VOICE_CALL (4) - Direct baseband modem (uplink + downlink, both parties)
+        // 2. VOICE_DOWNLINK (3) - Direct baseband modem (remote party)
+        // 3. VOICE_COMMUNICATION (7) - Two-way communication pipeline (AEC explicitly disabled)
+        // 4. MIC (1) - Standard microphone without AEC
+        // 5. UNPROCESSED (9) - Raw mic without any DSP modifications
+        // 6. VOICE_RECOGNITION (6) - High quality mic stream
+        // 7. CAMCORDER (5) - High sensitivity directional mic
+        // 8. DEFAULT (0)
         val CANDIDATE_SOURCES = intArrayOf(
+            MediaRecorder.AudioSource.VOICE_CALL,
+            MediaRecorder.AudioSource.VOICE_DOWNLINK,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.UNPROCESSED,
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
             MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.DEFAULT,
-            MediaRecorder.AudioSource.UNPROCESSED
+            MediaRecorder.AudioSource.DEFAULT
         )
 
         private const val SILENCE_THRESHOLD = 50 // Threshold to consider audio flowing (0-32767)
@@ -65,10 +63,13 @@ class AudioRecordEngine {
 
     // Hardware Audio Effects
     private var agc: AutomaticGainControl? = null
+    private var aec: AcousticEchoCanceler? = null
+    private var ns: NoiseSuppressor? = null
 
     // Audio routing
     private var audioManager: AudioManager? = null
     private var wasSpeakerphoneOn: Boolean = false
+    private var originalAudioMode: Int = AudioManager.MODE_NORMAL
 
     var activeSampleRate: Int = 16000
         private set
@@ -96,6 +97,17 @@ class AudioRecordEngine {
                 audioManager = am
                 am?.let {
                     wasSpeakerphoneOn = it.isSpeakerphoneOn
+                    originalAudioMode = it.mode
+
+                    if (it.mode == AudioManager.MODE_NORMAL) {
+                        try {
+                            it.mode = AudioManager.MODE_IN_COMMUNICATION
+                            Log.i(TAG, "Set audio mode to MODE_IN_COMMUNICATION for routing")
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "Could not set audio mode: ${t.message}")
+                        }
+                    }
+
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                         try {
                             val devices = it.availableCommunicationDevices
@@ -110,7 +122,7 @@ class AudioRecordEngine {
                     }
                     @Suppress("DEPRECATION")
                     it.isSpeakerphoneOn = true
-                    Log.i(TAG, "Speakerphone enabled for acoustic caller capture")
+                    Log.i(TAG, "Speakerphone enabled for acoustic caller capture (was=$wasSpeakerphoneOn)")
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Non-critical: could not set speakerphone: ${t.message}")
@@ -163,7 +175,7 @@ class AudioRecordEngine {
         activeSampleRate = chosenRate
         activeSource = chosenSource
 
-        // Hardware Automatic Gain Control if supported
+        // 1. Hardware Automatic Gain Control to boost faint acoustic signals
         try {
             if (AutomaticGainControl.isAvailable()) {
                 agc = AutomaticGainControl.create(chosenRecord.audioSessionId)?.apply { enabled = true }
@@ -171,6 +183,31 @@ class AudioRecordEngine {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "AGC initialization skipped: ${t.message}")
+        }
+
+        // 2. CRUCIAL FOR CALL RECORDING: Explicitly DISABLE AcousticEchoCanceler (AEC)
+        // If left enabled, Android's DSP treats the other person's voice as 'echo' and zeroes it out!
+        try {
+            if (AcousticEchoCanceler.isAvailable()) {
+                aec = AcousticEchoCanceler.create(chosenRecord.audioSessionId)?.apply {
+                    enabled = false
+                }
+                Log.i(TAG, "AcousticEchoCanceler explicitly DISABLED so caller voice is not cancelled")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "AEC handling skipped: ${t.message}")
+        }
+
+        // 3. Explicitly DISABLE NoiseSuppressor so quiet acoustic leakage from speaker isn't silenced
+        try {
+            if (NoiseSuppressor.isAvailable()) {
+                ns = NoiseSuppressor.create(chosenRecord.audioSessionId)?.apply {
+                    enabled = false
+                }
+                Log.i(TAG, "NoiseSuppressor explicitly DISABLED to prevent clipping caller voice")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "NoiseSuppressor handling skipped: ${t.message}")
         }
 
         // Initialize native C++ WAV writer
@@ -296,6 +333,25 @@ class AudioRecordEngine {
 
             val newRecord = AudioRecord(newSource, activeSampleRate, CHANNEL_CONFIG, AUDIO_FORMAT, bufferSize)
             if (newRecord.state == AudioRecord.STATE_INITIALIZED) {
+                try {
+                    if (AcousticEchoCanceler.isAvailable()) {
+                        aec?.release()
+                        aec = AcousticEchoCanceler.create(newRecord.audioSessionId)?.apply { enabled = false }
+                    }
+                } catch (_: Throwable) {}
+                try {
+                    if (NoiseSuppressor.isAvailable()) {
+                        ns?.release()
+                        ns = NoiseSuppressor.create(newRecord.audioSessionId)?.apply { enabled = false }
+                    }
+                } catch (_: Throwable) {}
+                try {
+                    if (AutomaticGainControl.isAvailable()) {
+                        agc?.release()
+                        agc = AutomaticGainControl.create(newRecord.audioSessionId)?.apply { enabled = true }
+                    }
+                } catch (_: Throwable) {}
+
                 newRecord.startRecording()
                 if (newRecord.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                     audioRecord = newRecord
@@ -342,6 +398,12 @@ class AudioRecordEngine {
                     it.isSpeakerphoneOn = wasSpeakerphoneOn
                     Log.i(TAG, "Restored speakerphone to: $wasSpeakerphoneOn")
                 }
+                if (it.mode != originalAudioMode) {
+                    try {
+                        it.mode = originalAudioMode
+                        Log.i(TAG, "Restored audio mode to: $originalAudioMode")
+                    } catch (_: Throwable) {}
+                }
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Could not restore speakerphone: ${t.message}")
@@ -350,6 +412,10 @@ class AudioRecordEngine {
     }
 
     private fun releaseRecord() {
+        try { aec?.release() } catch (_: Throwable) {}
+        aec = null
+        try { ns?.release() } catch (_: Throwable) {}
+        ns = null
         try { agc?.release() } catch (_: Throwable) {}
         agc = null
 
