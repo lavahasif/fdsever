@@ -344,14 +344,21 @@ class ProxyVpnService : VpnService() {
                 onStateChangeListener?.invoke(true, null)
                 logDiag("[OK] VPN TUN established! FD=${vpnInterface?.fd}. Diverting all apps to $host:$port via $protocol")
 
-                // Associate underlying Wi-Fi network so Android knows the VPN provides internet over Wi-Fi
+                // Associate underlying Wi-Fi network only if it already has validated internet.
+                // If the physical network is an unvalidated hotspot or local-only network, do NOT
+                // bind it as the underlying network, otherwise Android degrades the VPN's capabilities
+                // and marks the VPN as "No internet access"!
                 try {
                     val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         val activeNet = cm?.activeNetwork
-                        if (activeNet != null) {
+                        val caps = if (activeNet != null) cm.getNetworkCapabilities(activeNet) else null
+                        if (activeNet != null && caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
                             setUnderlyingNetworks(arrayOf(activeNet))
-                            logDiag("Associated underlying network: $activeNet")
+                            logDiag("Associated underlying validated network: $activeNet")
+                        } else {
+                            setUnderlyingNetworks(null)
+                            logDiag("No validated underlying network; VPN operates standalone with self-validation")
                         }
                     }
                 } catch (e: Exception) {
@@ -567,7 +574,9 @@ class ProxyVpnService : VpnService() {
                     // Fast captive portal probe validation (HTTP 204)
                     if (session.dstPort == 80 && payloadLen >= 14) {
                         val preview = String(payload, 0, minOf(payloadLen, 128), Charsets.US_ASCII)
-                        if (preview.startsWith("GET /generate_204") || preview.startsWith("GET /gen_204")) {
+                        if (preview.startsWith("GET /generate_204") || preview.startsWith("GET /gen_204") ||
+                            preview.startsWith("HEAD /generate_204") || preview.startsWith("GET /canonical.html") ||
+                            preview.startsWith("GET /ncsi.txt") || preview.startsWith("GET /connecttest.txt")) {
                             val nextAck = (clientSeq + payloadLen) and 0xFFFFFFFFL
                             val resp204 = "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII)
                             val curSeq = session.serverSeq.get()
@@ -1386,6 +1395,15 @@ class ProxyVpnService : VpnService() {
         val payloadLen = origLength - payloadOffset
         if (payloadLen <= 0) return
         val payload = origPacket.copyOfRange(payloadOffset, origLength)
+
+        // Fast-fail QUIC (HTTP/3 over UDP port 443).
+        // EveryProxy is a pure TCP proxy and cannot route UDP. Direct UDP on the hotspot gets ENETUNREACH.
+        // Instantly returning ICMP Port Unreachable forces YouTube, Chrome, Instagram, etc. to immediately
+        // use TCP HTTP/2 without any timeout, buffering stall, or "No internet connection" banner!
+        if (dstPort == 443) {
+            sendIcmpPortUnreachable(origPacket, origLength)
+            return
+        }
 
         // Try SOCKS5 UDP ASSOCIATE first if protocol is SOCKS5
         if (targetProtocol.equals("SOCKS5", ignoreCase = true)) {
