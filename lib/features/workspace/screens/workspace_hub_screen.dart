@@ -7,6 +7,8 @@ import '../../auto_trail/providers/auto_trail_provider.dart';
 import '../../auto_trail/screens/auto_trail_screen.dart';
 import '../../call_recorder/providers/call_recorder_provider.dart';
 import '../../call_recorder/screens/call_recorder_screen.dart';
+import '../../meeting_recorder/providers/meeting_recorder_provider.dart';
+import '../../meeting_recorder/screens/meeting_hub_screen.dart';
 import '../../focus_guard/providers/focus_guard_provider.dart';
 import '../../focus_guard/screens/focus_guard_hub_screen.dart';
 import '../../notes/providers/notes_provider.dart';
@@ -47,6 +49,7 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
     final autoTrail = context.watch<AutoTrailProvider>();
     final focusGuard = context.watch<FocusGuardProvider>();
     final callRecorder = context.watch<CallRecorderProvider>();
+    final meetingRecorder = context.watch<MeetingRecorderProvider>();
 
     final tabs = [
       CategoryTabItem(
@@ -76,10 +79,23 @@ class _WorkspaceHubScreenState extends State<WorkspaceHubScreen> {
         badgeText: callRecorder.isRecording ? 'REC' : (callRecorder.recordings.isNotEmpty ? '${callRecorder.recordings.length}' : null),
         showActiveDot: callRecorder.isRecording,
       ),
+      CategoryTabItem(
+        title: 'Meeting & Refocus',
+        icon: LucideIcons.mic,
+        badgeText: meetingRecorder.isRecording
+            ? 'REC'
+            : (meetingRecorder.isStandby
+                ? 'ARMED'
+                : (meetingRecorder.recordings.isNotEmpty ? '${meetingRecorder.recordings.length}' : null)),
+        showActiveDot: meetingRecorder.isRecording,
+      ),
     ];
 
     Widget body;
     switch (_selectedSubIndex) {
+      case 5:
+        body = const MeetingHubScreen();
+        break;
       case 4:
         body = const CallRecorderScreen();
         break;

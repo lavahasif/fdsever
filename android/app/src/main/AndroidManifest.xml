@@ -38,6 +38,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
         tools:ignore="ProtectedPermissions"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="fdserver"
@@ -139,6 +142,37 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Meeting Audio Recorder Foreground Service -->
+        <service
+            android:name=".meeting_recorder.MeetingRecorderService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
+
+        <!-- Meeting Focus / Refocus Alarm Receiver -->
+        <receiver
+            android:name=".meeting_recorder.alarm.MeetingAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Full-screen Lockscreen Alarm Activity for Meeting Refocus Nudges -->
+        <activity
+            android:name=".meeting_recorder.alarm.MeetingAlarmActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+
+        <!-- Meeting Alarm Boot Receiver to restore alarms on device reboot -->
+        <receiver
+            android:name=".meeting_recorder.alarm.MeetingBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 

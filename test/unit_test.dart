@@ -6,6 +6,9 @@ import 'package:fdserver/core/models/socket_message.dart';
 import 'package:fdserver/core/models/tutorial_item.dart';
 import 'package:fdserver/core/services/storage_service.dart';
 import 'package:fdserver/core/services/whatsapp_service.dart';
+import 'package:fdserver/features/meeting_recorder/models/meeting_recording.dart';
+import 'package:fdserver/features/meeting_recorder/models/meeting_schedule.dart';
+import 'package:fdserver/features/meeting_recorder/services/gemini_voice_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -100,6 +103,64 @@ void main() {
       final loaded = storage.getNotes();
       expect(loaded.length, 1);
       expect(loaded.first.title, 'Test Note');
+    });
+  });
+
+  group('Meeting & Refocus Unit Tests', () {
+    test('computedNudgeTimes calculates evenly spaced interval times', () {
+      // 10:00 to 11:00 with 3 nudges -> 10:15, 10:30, 10:45
+      final schedule = MeetingSchedule(
+        id: 1,
+        title: 'Weekly Standup',
+        startHour: 10,
+        startMinute: 0,
+        endHour: 11,
+        endMinute: 0,
+        alarmCount: 3,
+      );
+
+      expect(schedule.totalDurationMinutes, 60);
+      final nudges = schedule.computedNudgeTimes;
+      expect(nudges.length, 3);
+      expect(nudges[0].hour, 10);
+      expect(nudges[0].minute, 15);
+      expect(nudges[1].hour, 10);
+      expect(nudges[1].minute, 30);
+      expect(nudges[2].hour, 10);
+      expect(nudges[2].minute, 45);
+    });
+
+    test('MeetingRecording formatted strings and copyWith', () {
+      final rec = MeetingRecording(
+        id: 1,
+        filePath: '/tmp/meeting_20261008_100000.m4a',
+        title: 'Strategy Review',
+        startedAt: DateTime(2026, 10, 8, 10, 0),
+        durationMs: 3665000, // 1 hr 1 min 5 sec
+        sizeBytes: 30000000,
+        triggerType: 'power_button',
+      );
+
+      expect(rec.formattedDuration, '01:01:05');
+      expect(rec.formattedSize, '28.61 MB');
+      expect(rec.triggerLabel, 'Power ×3');
+
+      final renamed = rec.copyWith(title: 'Q4 Budget Alignment');
+      expect(renamed.title, 'Q4 Budget Alignment');
+      expect(renamed.filePath, rec.filePath);
+    });
+
+    test('GeminiVoiceResult formattedTags and formattedNotes formatting', () {
+      const result = GeminiVoiceResult(
+        tags: ['Roadmap', '#Budget', 'Design'],
+        keyPoints: ['Finalized Q4 goals', 'Approved UX overhaul'],
+        summary: 'Discussion on product roadmap and budget alignment.',
+      );
+
+      expect(result.formattedTags, '#Roadmap, #Budget, #Design');
+      expect(result.formattedNotes, contains('Discussion on product roadmap and budget alignment.'));
+      expect(result.formattedNotes, contains('• Finalized Q4 goals'));
+      expect(result.formattedNotes, contains('• Approved UX overhaul'));
     });
   });
 }

@@ -22,6 +22,14 @@
     public <fields>;
 }
 
+# Preserve Meeting Recorder & Refocus Alarm Services, Receivers & Activity
+-keep class com.hasif.fdserver.fdserver.meeting_recorder.** { *; }
+-keepclassmembers class com.hasif.fdserver.fdserver.meeting_recorder.** {
+    public static <methods>;
+    public <methods>;
+    public <fields>;
+}
+
 # Preserve all native methods across the project
 -keepclasseswithmembernames class * {
     native <methods>;

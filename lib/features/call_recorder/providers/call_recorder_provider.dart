@@ -52,6 +52,9 @@ class CallRecorderProvider extends ChangeNotifier {
   int get bytesWritten => _bytesWritten;
   String get currentFilePath => _currentFilePath;
   int get latestAmplitude => _latestAmplitude;
+  String _searchQuery = '';
+  String _filterDirection = 'all'; // 'all', 'incoming', 'outgoing', 'voip'
+
   String get callState => _callState;
   String get incomingNumber => _incomingNumber;
   bool get autoRecordEnabled => _autoRecordEnabled;
@@ -61,6 +64,51 @@ class CallRecorderProvider extends ChangeNotifier {
   double get gainMultiplier => _gainMultiplier;
   String get statusMessage => _statusMessage;
   List<CallRecordingItem> get recordings => List.unmodifiable(_recordings);
+
+  String get searchQuery => _searchQuery;
+  String get filterDirection => _filterDirection;
+
+  List<CallRecordingItem> get filteredRecordings {
+    var list = _recordings;
+
+    // Filter by direction
+    if (_filterDirection == 'incoming') {
+      list = list.where((r) => r.isIncoming).toList();
+    } else if (_filterDirection == 'outgoing') {
+      list = list.where((r) => r.isOutgoing).toList();
+    } else if (_filterDirection == 'voip') {
+      list = list.where((r) => r.isVoIP).toList();
+    }
+
+    // Filter by text search
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.trim().toLowerCase();
+      list = list.where((r) {
+        return r.displayName.toLowerCase().contains(q) ||
+            r.phoneNumber.toLowerCase().contains(q) ||
+            r.name.toLowerCase().contains(q) ||
+            r.notes.toLowerCase().contains(q);
+      }).toList();
+    }
+
+    return List.unmodifiable(list);
+  }
+
+  void setSearchQuery(String query) {
+    _searchQuery = query;
+    notifyListeners();
+  }
+
+  void setFilterDirection(String direction) {
+    _filterDirection = direction;
+    notifyListeners();
+  }
+
+  void clearFilters() {
+    _searchQuery = '';
+    _filterDirection = 'all';
+    notifyListeners();
+  }
 
   bool get speechEqEnabled => _speechEqEnabled;
   bool get volumeEscalationEnabled => _volumeEscalationEnabled;
@@ -429,6 +477,21 @@ class CallRecorderProvider extends ChangeNotifier {
       await refreshRecordings();
     }
     return success;
+  }
+
+  Future<int> bulkDeleteRecordings(List<String> paths) async {
+    int deleted = 0;
+    for (final path in paths) {
+      if (_currentlyPlayingPath == path) {
+        await stopAudio();
+      }
+      final ok = await CallRecorderBridge.deleteRecording(path);
+      if (ok) deleted++;
+    }
+    if (deleted > 0) {
+      await refreshRecordings();
+    }
+    return deleted;
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../models/call_recording_item.dart';
 import '../providers/call_recorder_provider.dart';
+import '../services/call_recorder_share_service.dart';
 
 class CallRecorderScreen extends StatefulWidget {
   const CallRecorderScreen({super.key});
@@ -14,6 +15,9 @@ class CallRecorderScreen extends StatefulWidget {
 
 class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _isSelectionMode = false;
+  final Set<String> _selectedPaths = {};
 
   @override
   void initState() {
@@ -27,7 +31,15 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
   @override
   void dispose() {
     _pulseController.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedPaths.clear();
+    });
   }
 
   @override
@@ -64,7 +76,7 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 32 + MediaQuery.paddingOf(context).bottom),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -100,20 +112,45 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
                     ),
                   ],
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF27272A),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${provider.recordings.length} files',
-                    style: const TextStyle(fontSize: 12, color: Colors.white70),
-                  ),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        _isSelectionMode ? LucideIcons.checkSquare : LucideIcons.listFilter,
+                        size: 18,
+                        color: _isSelectionMode ? const Color(0xFF10B981) : Colors.white60,
+                      ),
+                      tooltip: _isSelectionMode ? 'Exit Selection Mode' : 'Multi-Select',
+                      onPressed: () {
+                        setState(() {
+                          _isSelectionMode = !_isSelectionMode;
+                          if (!_isSelectionMode) _selectedPaths.clear();
+                        });
+                      },
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF27272A),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${provider.filteredRecordings.length}/${provider.recordings.length}',
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
             const SizedBox(height: 12),
+
+            // ── Search & Filter Direction Controls ─────────────────────────────
+            _buildSearchAndFilters(context, provider),
+            const SizedBox(height: 12),
+
+            // ── Bulk Actions Bar (when selection mode active) ───────────────────
+            if (_isSelectionMode) _buildBulkActionBar(context, provider),
 
             // ── Recordings List ───────────────────────────────────────────────
             _buildRecordingsList(context, provider),
@@ -714,8 +751,237 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
     );
   }
 
+  // ── Search & Filter Direction Controls ─────────────────────────────
+  Widget _buildSearchAndFilters(BuildContext context, CallRecorderProvider provider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Search bar
+        Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF18181B),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF27272A)),
+          ),
+          child: TextField(
+            controller: _searchCtrl,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            onChanged: (val) => provider.setSearchQuery(val),
+            decoration: InputDecoration(
+              hintText: 'Search by contact, phone number, note...',
+              hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+              prefixIcon: const Icon(LucideIcons.search, size: 16, color: Colors.white54),
+              suffixIcon: provider.searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(LucideIcons.x, size: 14, color: Colors.white54),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        provider.setSearchQuery('');
+                      },
+                    )
+                  : null,
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Filter direction chips
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildFilterChip('All', 'all', provider),
+              const SizedBox(width: 6),
+              _buildFilterChip('Incoming', 'incoming', provider, icon: LucideIcons.phoneIncoming),
+              const SizedBox(width: 6),
+              _buildFilterChip('Outgoing', 'outgoing', provider, icon: LucideIcons.phoneOutgoing),
+              const SizedBox(width: 6),
+              _buildFilterChip('VoIP', 'voip', provider, icon: LucideIcons.globe),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String label, String directionKey, CallRecorderProvider provider, {IconData? icon}) {
+    final isSelected = provider.filterDirection == directionKey;
+    return GestureDetector(
+      onTap: () => provider.setFilterDirection(directionKey),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF10B981).withValues(alpha: 0.15) : const Color(0xFF18181B),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF10B981) : const Color(0xFF27272A),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 12, color: isSelected ? const Color(0xFF10B981) : Colors.white60),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                color: isSelected ? const Color(0xFF10B981) : Colors.white70,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Shadcn Styled Bulk Action Bar ──────────────────────────────────
+  Widget _buildBulkActionBar(BuildContext context, CallRecorderProvider provider) {
+    final filtered = provider.filteredRecordings;
+    final allSelected = filtered.isNotEmpty && _selectedPaths.length == filtered.length;
+    final count = _selectedPaths.length;
+    final selectedItems = filtered.where((r) => _selectedPaths.contains(r.path)).toList();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF18181B),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.6), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF10B981).withValues(alpha: 0.1),
+            blurRadius: 10,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                if (allSelected) {
+                  _selectedPaths.clear();
+                } else {
+                  _selectedPaths.addAll(filtered.map((r) => r.path));
+                }
+              });
+            },
+            child: Row(
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: allSelected ? const Color(0xFF10B981) : const Color(0xFF09090B),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: allSelected ? const Color(0xFF10B981) : const Color(0xFF3F3F46),
+                    ),
+                  ),
+                  child: allSelected
+                      ? const Icon(LucideIcons.check, size: 15, color: Colors.black)
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  allSelected ? 'All' : 'Select All',
+                  style: const TextStyle(color: Color(0xFFD4D4D8), fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(color: Color(0xFF10B981), fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const Spacer(),
+          IconButton(
+            tooltip: 'Share Selected ($count)',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.share2, color: Color(0xFF38BDF8), size: 18),
+            onPressed: count == 0 ? null : () => CallRecorderShareService.shareBulk(selectedItems),
+          ),
+          IconButton(
+            tooltip: 'WhatsApp Selected ($count)',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.messageCircle, color: Color(0xFF22C55E), size: 19),
+            onPressed: count == 0 ? null : () => CallRecorderShareService.shareBulkToWhatsApp(selectedItems),
+          ),
+          IconButton(
+            tooltip: 'Delete Selected ($count)',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.trash2, color: Color(0xFFEF4444), size: 18),
+            onPressed: count == 0 ? null : () => _showBulkDeleteConfirmation(context, provider, count),
+          ),
+          IconButton(
+            tooltip: 'Exit Selection',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.x, color: Color(0xFFA1A1AA), size: 18),
+            onPressed: _exitSelectionMode,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBulkDeleteConfirmation(BuildContext context, CallRecorderProvider provider, int count) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF18181B),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF27272A)),
+        ),
+        title: const Text('Delete Selected Call Recordings?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+        content: Text(
+          'Are you sure you want to permanently delete $count selected recording(s) and their audio files?',
+          style: const TextStyle(color: Color(0xFFA1A1AA)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFFA1A1AA))),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await provider.bulkDeleteRecordings(_selectedPaths.toList());
+              _exitSelectionMode();
+            },
+            child: const Text('Delete All', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRecordingsList(BuildContext context, CallRecorderProvider provider) {
-    if (provider.recordings.isEmpty) {
+    final items = provider.filteredRecordings;
+
+    if (items.isEmpty) {
+      final isFiltered = provider.searchQuery.isNotEmpty || provider.filterDirection != 'all';
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(32),
@@ -724,19 +990,35 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFF27272A)),
         ),
-        child: const Column(
+        child: Column(
           children: [
-            Icon(LucideIcons.fileAudio, size: 36, color: Colors.white30),
-            SizedBox(height: 12),
+            Icon(isFiltered ? LucideIcons.searchX : LucideIcons.fileAudio, size: 36, color: Colors.white30),
+            const SizedBox(height: 12),
             Text(
-              'No call recordings yet',
-              style: TextStyle(fontSize: 14, color: Colors.white70, fontWeight: FontWeight.w500),
+              isFiltered ? 'No matching recordings found' : 'No call recordings yet',
+              style: const TextStyle(fontSize: 14, color: Colors.white70, fontWeight: FontWeight.w500),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
-              'Recordings will appear here in WAV format',
-              style: TextStyle(fontSize: 12, color: Colors.white38),
+              isFiltered ? 'Try adjusting your search query or direction filter' : 'Recordings will appear here in WAV format',
+              style: const TextStyle(fontSize: 12, color: Colors.white38),
             ),
+            if (isFiltered) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF10B981),
+                  side: const BorderSide(color: Color(0xFF10B981), width: 1),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(LucideIcons.rotateCcw, size: 14),
+                label: const Text('Reset Filters', style: TextStyle(fontSize: 12)),
+                onPressed: () {
+                  _searchCtrl.clear();
+                  provider.clearFilters();
+                },
+              ),
+            ],
           ],
         ),
       );
@@ -745,261 +1027,330 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      itemCount: provider.recordings.length,
+      itemCount: items.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final item = provider.recordings[index];
+        final item = items[index];
         return _buildRecordingItem(context, provider, item);
       },
     );
   }
 
   Widget _buildRecordingItem(BuildContext context, CallRecorderProvider provider, CallRecordingItem item) {
-    final isSelected = provider.isTrackSelected(item.path);
+    final isTrackActive = provider.isTrackSelected(item.path);
     final isPlaying = provider.isTrackPlaying(item.path);
+    final isChecked = _selectedPaths.contains(item.path);
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFF1F1F23) : const Color(0xFF18181B),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected
-              ? (isPlaying ? const Color(0xFF10B981) : const Color(0xFF3F3F46))
-              : const Color(0xFF27272A),
-          width: isSelected ? 1.5 : 1.0,
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onLongPress: () {
+        setState(() {
+          _isSelectionMode = true;
+          _selectedPaths.add(item.path);
+        });
+      },
+      onTap: _isSelectionMode
+          ? () {
+              setState(() {
+                if (_selectedPaths.contains(item.path)) {
+                  _selectedPaths.remove(item.path);
+                  if (_selectedPaths.isEmpty) _isSelectionMode = false;
+                } else {
+                  _selectedPaths.add(item.path);
+                }
+              });
+            }
+          : null,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isChecked
+              ? const Color(0xFF10B981).withValues(alpha: 0.1)
+              : (isTrackActive ? const Color(0xFF1F1F23) : const Color(0xFF18181B)),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isChecked
+                ? const Color(0xFF10B981)
+                : (isTrackActive
+                    ? (isPlaying ? const Color(0xFF10B981) : const Color(0xFF3F3F46))
+                    : const Color(0xFF27272A)),
+            width: (isChecked || isTrackActive) ? 1.5 : 1.0,
+          ),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              // Play / Pause Circle Button
-              GestureDetector(
-                onTap: () => provider.togglePlay(item.path),
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: isPlaying
-                        ? const Color(0xFF10B981)
-                        : const Color(0xFF10B981).withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                // Multi-select Checkbox
+                if (_isSelectionMode) ...[
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        if (_selectedPaths.contains(item.path)) {
+                          _selectedPaths.remove(item.path);
+                          if (_selectedPaths.isEmpty) _isSelectionMode = false;
+                        } else {
+                          _selectedPaths.add(item.path);
+                        }
+                      });
+                    },
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      margin: const EdgeInsets.only(right: 12),
+                      decoration: BoxDecoration(
+                        color: isChecked ? const Color(0xFF10B981) : const Color(0xFF09090B),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isChecked ? const Color(0xFF10B981) : const Color(0xFF3F3F46),
+                        ),
+                      ),
+                      child: isChecked ? const Icon(LucideIcons.check, size: 15, color: Colors.black) : null,
+                    ),
                   ),
-                  child: Icon(
-                    isPlaying ? LucideIcons.pause : LucideIcons.play,
-                    color: isPlaying ? Colors.black : const Color(0xFF10B981),
-                    size: 20,
+                ],
+
+                // Play / Pause Circle Button
+                GestureDetector(
+                  onTap: () => provider.togglePlay(item.path),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: isPlaying
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFF10B981).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isPlaying ? LucideIcons.pause : LucideIcons.play,
+                      color: isPlaying ? Colors.black : const Color(0xFF10B981),
+                      size: 20,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 14),
+                const SizedBox(width: 14),
 
-              // Title, Mobile Number, Metadata
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
+                // Title, Mobile Number, Metadata
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        if (item.directionLabel.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: item.isIncoming
-                                  ? const Color(0xFF06B6D4).withValues(alpha: 0.15)
-                                  : item.isOutgoing
-                                      ? const Color(0xFF8B5CF6).withValues(alpha: 0.15)
-                                      : const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  item.isIncoming
-                                      ? LucideIcons.phoneIncoming
-                                      : item.isOutgoing
-                                          ? LucideIcons.phoneOutgoing
-                                          : LucideIcons.globe,
-                                  size: 10,
-                                  color: item.isIncoming
-                                      ? const Color(0xFF06B6D4)
-                                      : item.isOutgoing
-                                          ? const Color(0xFF8B5CF6)
-                                          : const Color(0xFFF59E0B),
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  item.directionLabel,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
+                      const SizedBox(height: 3),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          if (item.directionLabel.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: item.isIncoming
+                                    ? const Color(0xFF06B6D4).withValues(alpha: 0.15)
+                                    : item.isOutgoing
+                                        ? const Color(0xFF8B5CF6).withValues(alpha: 0.15)
+                                        : const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    item.isIncoming
+                                        ? LucideIcons.phoneIncoming
+                                        : item.isOutgoing
+                                            ? LucideIcons.phoneOutgoing
+                                            : LucideIcons.globe,
+                                    size: 10,
                                     color: item.isIncoming
                                         ? const Color(0xFF06B6D4)
                                         : item.isOutgoing
                                             ? const Color(0xFF8B5CF6)
                                             : const Color(0xFFF59E0B),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (item.phoneNumber.isNotEmpty && item.phoneNumber != 'Unknown')
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(LucideIcons.phone, size: 10, color: Color(0xFF10B981)),
-                                const SizedBox(width: 4),
-                                Text(
-                                  item.phoneNumber,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFF10B981),
-                                    fontWeight: FontWeight.bold,
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    item.directionLabel,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: item.isIncoming
+                                          ? const Color(0xFF06B6D4)
+                                          : item.isOutgoing
+                                              ? const Color(0xFF8B5CF6)
+                                              : const Color(0xFFF59E0B),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                        Text(item.formattedDate, style: const TextStyle(fontSize: 11, color: Colors.white54)),
-                        Text('•', style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.3))),
-                        Text(item.formattedSize, style: const TextStyle(fontSize: 11, color: Colors.white54)),
-                      ],
-                    ),
-                    if (item.notes.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '📝 ${item.notes}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11, color: Colors.white54, fontStyle: FontStyle.italic),
+                          if (item.phoneNumber.isNotEmpty && item.phoneNumber != 'Unknown')
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(LucideIcons.phone, size: 10, color: Color(0xFF10B981)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    item.phoneNumber,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Color(0xFF10B981),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          Text(item.formattedDate, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                          Text('•', style: TextStyle(fontSize: 11, color: Colors.white.withValues(alpha: 0.3))),
+                          Text(item.formattedSize, style: const TextStyle(fontSize: 11, color: Colors.white54)),
+                        ],
                       ),
+                      if (item.notes.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '📝 ${item.notes}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, color: Colors.white54, fontStyle: FontStyle.italic),
+                        ),
+                      ],
                     ],
+                  ),
+                ),
+
+                // Share Button (System Share Sheet)
+                IconButton(
+                  icon: const Icon(LucideIcons.share2, size: 16, color: Color(0xFF38BDF8)),
+                  tooltip: 'Share',
+                  onPressed: () => CallRecorderShareService.shareSingle(item),
+                ),
+
+                // WhatsApp Direct Share Button
+                IconButton(
+                  icon: const Icon(LucideIcons.messageCircle, size: 16, color: Color(0xFF22C55E)),
+                  tooltip: 'Share to WhatsApp',
+                  onPressed: () => CallRecorderShareService.shareSingleToWhatsApp(item),
+                ),
+
+                // Open with External Media Player (VLC / System Music / Chooser)
+                IconButton(
+                  icon: const Icon(LucideIcons.externalLink, size: 16, color: Color(0xFF10B981)),
+                  tooltip: 'Open with Player',
+                  onPressed: () async {
+                    await provider.openWithExternalPlayer(item.path);
+                  },
+                ),
+
+                // Edit Metadata Action
+                IconButton(
+                  icon: const Icon(LucideIcons.penLine, size: 16, color: Colors.white60),
+                  tooltip: 'Edit Mobile No / Notes',
+                  onPressed: () => _showEditMetadataDialog(context, provider, item),
+                ),
+
+                // Delete Action
+                IconButton(
+                  icon: const Icon(LucideIcons.trash2, size: 16, color: Colors.white38),
+                  tooltip: 'Delete',
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        backgroundColor: const Color(0xFF18181B),
+                        title: const Text('Delete Recording?', style: TextStyle(color: Colors.white, fontSize: 16)),
+                        content: Text('Are you sure you want to delete ${item.name}?', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await provider.deleteRecording(item.path);
+                    }
+                  },
+                ),
+              ],
+            ),
+
+            // Audio Player progress scrubber bar when selected
+            if (isTrackActive) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF121214),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Column(
+                  children: [
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 3,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                        activeTrackColor: const Color(0xFF10B981),
+                        inactiveTrackColor: const Color(0xFF27272A),
+                        thumbColor: const Color(0xFF10B981),
+                      ),
+                      child: Slider(
+                        value: provider.playbackDurationMs > 0
+                            ? (provider.playbackPositionMs / provider.playbackDurationMs).clamp(0.0, 1.0)
+                            : 0.0,
+                        onChanged: (val) {
+                          final targetMs = (val * provider.playbackDurationMs).toInt();
+                          provider.seekAudio(targetMs);
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            CallRecorderProvider.formatMs(provider.playbackPositionMs),
+                            style: const TextStyle(fontSize: 11, color: Colors.white60, fontFamily: 'monospace'),
+                          ),
+                          Text(
+                            CallRecorderProvider.formatMs(provider.playbackDurationMs),
+                            style: const TextStyle(fontSize: 11, color: Colors.white38, fontFamily: 'monospace'),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
-
-              // Open with External Media Player (VLC / System Music / Chooser)
-              IconButton(
-                icon: const Icon(LucideIcons.externalLink, size: 16, color: Color(0xFF10B981)),
-                tooltip: 'Open with Player',
-                onPressed: () async {
-                  await provider.openWithExternalPlayer(item.path);
-                },
-              ),
-
-              // Edit Metadata Action
-              IconButton(
-                icon: const Icon(LucideIcons.penLine, size: 16, color: Colors.white60),
-                tooltip: 'Edit Mobile No / Notes',
-                onPressed: () => _showEditMetadataDialog(context, provider, item),
-              ),
-
-              // Delete Action
-              IconButton(
-                icon: const Icon(LucideIcons.trash2, size: 16, color: Colors.white38),
-                tooltip: 'Delete',
-                onPressed: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      backgroundColor: const Color(0xFF18181B),
-                      title: const Text('Delete Recording?', style: TextStyle(color: Colors.white, fontSize: 16)),
-                      content: Text('Are you sure you want to delete ${item.name}?', style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text('Cancel'),
-                        ),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text('Delete', style: TextStyle(color: Colors.white)),
-                        ),
-                      ],
-                    ),
-                  );
-                  if (confirm == true) {
-                    await provider.deleteRecording(item.path);
-                  }
-                },
-              ),
             ],
-          ),
-
-          // Audio Player progress scrubber bar when selected
-          if (isSelected) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF121214),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Column(
-                children: [
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                      activeTrackColor: const Color(0xFF10B981),
-                      inactiveTrackColor: const Color(0xFF27272A),
-                      thumbColor: const Color(0xFF10B981),
-                    ),
-                    child: Slider(
-                      value: provider.playbackDurationMs > 0
-                          ? (provider.playbackPositionMs / provider.playbackDurationMs).clamp(0.0, 1.0)
-                          : 0.0,
-                      onChanged: (val) {
-                        final targetMs = (val * provider.playbackDurationMs).toInt();
-                        provider.seekAudio(targetMs);
-                      },
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          CallRecorderProvider.formatMs(provider.playbackPositionMs),
-                          style: const TextStyle(fontSize: 11, color: Colors.white60, fontFamily: 'monospace'),
-                        ),
-                        Text(
-                          CallRecorderProvider.formatMs(provider.playbackDurationMs),
-                          style: const TextStyle(fontSize: 11, color: Colors.white38, fontFamily: 'monospace'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }

@@ -22,6 +22,7 @@ import com.hasif.fdserver.fdserver.call_recorder.CallAudioPlayer
 import com.hasif.fdserver.fdserver.call_recorder.CallRecorderBridge
 import com.hasif.fdserver.fdserver.call_recorder.CallRecorderService
 import com.hasif.fdserver.fdserver.call_recorder.CallStateManager
+import com.hasif.fdserver.fdserver.meeting_recorder.MeetingRecorderBridge
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -817,6 +818,7 @@ class MainActivity : FlutterActivity() {
 
         // ── Call Audio Recorder Channel ──────────────────────────────────────
         CallRecorderBridge.init()
+        MeetingRecorderBridge.registerWith(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
         callRecorderChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_RECORDER_CHANNEL).apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
