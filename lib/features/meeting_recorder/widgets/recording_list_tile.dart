@@ -8,6 +8,11 @@ class RecordingListTile extends StatelessWidget {
   final bool isPlaying;
   final bool isSelectionMode;
   final bool isSelected;
+  final bool isTrackActive;
+  final int playbackPositionMs;
+  final int playbackDurationMs;
+  final ValueChanged<int>? onSeek;
+  final VoidCallback? onStop;
   final VoidCallback onPlayToggle;
   final ValueChanged<String> onRename;
   final Function(String notes, String tags) onNotesSaved;
@@ -24,6 +29,11 @@ class RecordingListTile extends StatelessWidget {
     super.key,
     required this.recording,
     required this.isPlaying,
+    this.isTrackActive = false,
+    this.playbackPositionMs = 0,
+    this.playbackDurationMs = 0,
+    this.onSeek,
+    this.onStop,
     this.isSelectionMode = false,
     this.isSelected = false,
     required this.onPlayToggle,
@@ -432,6 +442,113 @@ class RecordingListTile extends StatelessWidget {
                   ),
                 ),
               ],
+
+              // ── Inline Audio Player Scrubber (when track is active / playing) ──
+              if (isTrackActive) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF101014),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isPlaying ? const Color(0xFF38BDF8).withValues(alpha: 0.4) : const Color(0xFF27272A),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      // Controls row: Rewind -10s, Play/Pause Button, Forward +10s, Stop Button
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(LucideIcons.rotateCcw, size: 16, color: Colors.white70),
+                            tooltip: 'Rewind 10s',
+                            onPressed: onSeek != null && playbackDurationMs > 0
+                                ? () => onSeek!((playbackPositionMs - 10000).clamp(0, playbackDurationMs))
+                                : null,
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isPlaying ? const Color(0xFF2563EB) : const Color(0xFF38BDF8),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: Icon(
+                              isPlaying ? LucideIcons.pause : LucideIcons.play,
+                              size: 15,
+                            ),
+                            label: Text(
+                              isPlaying ? 'Pause' : 'Play',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: onPlayToggle,
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(LucideIcons.rotateCw, size: 16, color: Colors.white70),
+                            tooltip: 'Forward 10s',
+                            onPressed: onSeek != null && playbackDurationMs > 0
+                                ? () => onSeek!((playbackPositionMs + 10000).clamp(0, playbackDurationMs))
+                                : null,
+                          ),
+                          const SizedBox(width: 4),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            icon: const Icon(LucideIcons.square, size: 15, color: Color(0xFFEF4444)),
+                            tooltip: 'Stop',
+                            onPressed: onStop,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+
+                      // Slider scrubber
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 3,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                          activeTrackColor: const Color(0xFF38BDF8),
+                          inactiveTrackColor: const Color(0xFF27272A),
+                          thumbColor: const Color(0xFF38BDF8),
+                        ),
+                        child: Slider(
+                          value: playbackDurationMs > 0
+                              ? (playbackPositionMs / playbackDurationMs).clamp(0.0, 1.0)
+                              : 0.0,
+                          onChanged: onSeek != null && playbackDurationMs > 0
+                              ? (val) {
+                                  final targetMs = (val * playbackDurationMs).toInt();
+                                  onSeek!(targetMs);
+                                }
+                              : null,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              _formatMs(playbackPositionMs),
+                              style: const TextStyle(fontSize: 11, color: Colors.white60, fontFamily: 'monospace'),
+                            ),
+                            Text(
+                              _formatMs(playbackDurationMs),
+                              style: const TextStyle(fontSize: 11, color: Colors.white38, fontFamily: 'monospace'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -586,5 +703,12 @@ class RecordingListTile extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _formatMs(int ms) {
+    final totalSec = ms ~/ 1000;
+    final mins = totalSec ~/ 60;
+    final secs = totalSec % 60;
+    return '${mins >= 10 ? mins : "0$mins"}:${secs >= 10 ? secs : "0$secs"}';
   }
 }

@@ -1310,6 +1310,56 @@ class _CallRecorderScreenState extends State<CallRecorderScreen> with SingleTick
                 ),
                 child: Column(
                   children: [
+                    // Play / Pause / Seek / Stop controls
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(LucideIcons.rotateCcw, size: 16, color: Colors.white70),
+                          tooltip: 'Rewind 10s',
+                          onPressed: provider.playbackDurationMs > 0
+                              ? () => provider.seekAudio(max(0, provider.playbackPositionMs - 10000))
+                              : null,
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isPlaying ? const Color(0xFF047857) : const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: Icon(
+                            isPlaying ? LucideIcons.pause : LucideIcons.play,
+                            size: 15,
+                          ),
+                          label: Text(
+                            isPlaying ? 'Pause' : 'Play',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () => provider.togglePlay(item.path),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(LucideIcons.rotateCw, size: 16, color: Colors.white70),
+                          tooltip: 'Forward 10s',
+                          onPressed: provider.playbackDurationMs > 0
+                              ? () => provider.seekAudio(min(provider.playbackDurationMs, provider.playbackPositionMs + 10000))
+                              : null,
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(LucideIcons.square, size: 15, color: Color(0xFFEF4444)),
+                          tooltip: 'Stop',
+                          onPressed: () => provider.stopAudio(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+
                     SliderTheme(
                       data: SliderTheme.of(context).copyWith(
                         trackHeight: 3,

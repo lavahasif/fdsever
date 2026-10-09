@@ -286,16 +286,47 @@ class MeetingRecorderProvider extends ChangeNotifier {
 
   // --- Player Methods ---
 
+  bool isTrackPlaying(String path) => _isPlaying && _currentlyPlayingPath == path;
+  bool isTrackActive(String path) => _currentlyPlayingPath == path;
+
+  static String formatMs(int ms) {
+    final totalSec = ms ~/ 1000;
+    final mins = totalSec ~/ 60;
+    final secs = totalSec % 60;
+    return '${mins >= 10 ? mins : "0$mins"}:${secs >= 10 ? secs : "0$secs"}';
+  }
+
+  Future<void> togglePlayAudio(String path) async {
+    if (_currentlyPlayingPath == path) {
+      if (_isPlaying) {
+        await pausePlayer();
+      } else {
+        await _bridge.resumeAudio();
+      }
+    } else {
+      await playAudio(path);
+    }
+  }
+
   Future<void> playAudio(String path) async {
     if (_currentlyPlayingPath == path && !_isPlaying) {
       await _bridge.resumeAudio();
     } else {
-      await _bridge.playAudio(path);
+      _currentlyPlayingPath = path;
+      _isPlaying = true;
+      notifyListeners();
+      final ok = await _bridge.playAudio(path);
+      if (!ok) {
+        _isPlaying = false;
+        notifyListeners();
+      }
     }
   }
 
   Future<void> pausePlayer() async {
     await _bridge.pauseAudio();
+    _isPlaying = false;
+    notifyListeners();
   }
 
   Future<void> stopPlayer() async {
@@ -307,6 +338,8 @@ class MeetingRecorderProvider extends ChangeNotifier {
   }
 
   Future<void> seekPlayer(int positionMs) async {
+    _playerCurrentMs = positionMs;
+    notifyListeners();
     await _bridge.seekAudio(positionMs);
   }
 

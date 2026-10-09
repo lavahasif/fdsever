@@ -81,7 +81,7 @@ class MeetingRecorderBridge(private val context: Context) : MethodChannel.Method
             }
         }
 
-        CallAudioPlayer.onPlaybackStatus = { statusMap ->
+        CallAudioPlayer.addListener { statusMap ->
             mainHandler.post {
                 playbackEventSink?.success(statusMap)
             }

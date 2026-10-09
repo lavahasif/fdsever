@@ -21,7 +21,25 @@ object CallAudioPlayer {
     var currentlyPlayingPath: String? = null
         private set
 
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Map<String, Any>) -> Unit>()
+
     var onPlaybackStatus: ((Map<String, Any>) -> Unit)? = null
+        set(value) {
+            field = value
+            if (value != null && !listeners.contains(value)) {
+                listeners.add(value)
+            }
+        }
+
+    fun addListener(listener: (Map<String, Any>) -> Unit) {
+        if (!listeners.contains(listener)) {
+            listeners.add(listener)
+        }
+    }
+
+    fun removeListener(listener: (Map<String, Any>) -> Unit) {
+        listeners.remove(listener)
+    }
 
     private val handler = Handler(Looper.getMainLooper())
     private var progressRunnable: Runnable? = null
@@ -170,11 +188,18 @@ object CallAudioPlayer {
 
     private fun notifyStatus(isPlaying: Boolean, currentMs: Int, totalMs: Int, pathOverride: String? = null) {
         val path = pathOverride ?: currentlyPlayingPath ?: ""
-        onPlaybackStatus?.invoke(mapOf(
+        val statusMap = mapOf(
             "isPlaying" to isPlaying,
             "currentPositionMs" to currentMs,
             "durationMs" to totalMs,
             "filePath" to path
-        ))
+        )
+        for (listener in listeners) {
+            try {
+                listener.invoke(statusMap)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Error invoking playback listener: ${t.message}")
+            }
+        }
     }
 }

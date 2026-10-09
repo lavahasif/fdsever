@@ -1189,7 +1189,7 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        CallAudioPlayer.onPlaybackStatus = { statusMap ->
+        CallAudioPlayer.addListener { statusMap ->
             runOnUiThread {
                 callRecorderChannel?.invokeMethod("onAudioPlaybackStateChanged", statusMap)
             }

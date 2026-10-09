@@ -356,20 +356,22 @@ class _MeetingHubScreenState extends State<MeetingHubScreen>
           else
             ...recordings.map((rec) {
               final isPlayingThis = recorder.currentlyPlayingPath == rec.filePath && recorder.isPlaying;
+              final isTrackActiveThis = recorder.currentlyPlayingPath == rec.filePath;
               final isSelectedThis = _selectedIds.contains(rec.id);
 
               return RecordingListTile(
                 recording: rec,
                 isPlaying: isPlayingThis,
+                isTrackActive: isTrackActiveThis,
+                playbackPositionMs: isTrackActiveThis ? recorder.playerCurrentMs : 0,
+                playbackDurationMs: isTrackActiveThis && recorder.playerDurationMs > 0
+                    ? recorder.playerDurationMs
+                    : rec.durationMs,
+                onSeek: (ms) => recorder.seekPlayer(ms),
+                onStop: () => recorder.stopPlayer(),
                 isSelectionMode: _isSelectionMode,
                 isSelected: isSelectedThis,
-                onPlayToggle: () {
-                  if (isPlayingThis) {
-                    recorder.pausePlayer();
-                  } else {
-                    recorder.playAudio(rec.filePath);
-                  }
-                },
+                onPlayToggle: () => recorder.togglePlayAudio(rec.filePath),
                 onToggleSelect: () {
                   setState(() {
                     if (_selectedIds.contains(rec.id)) {
